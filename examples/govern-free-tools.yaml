@@ -6,7 +6,7 @@
 # costs money.
 #
 # Run with:
-#   toolmeter-gateway --config examples/govern-free-tools.yaml
+#   toolwarden-gateway --config examples/govern-free-tools.yaml
 
 policy:
   budget:
@@ -34,7 +34,7 @@ policy:
   default: deny         # anything unlisted is blocked
 
 storage:
-  dir: ~/.toolmeter
+  dir: ~/.toolwarden
 
 servers:
   - name: fs

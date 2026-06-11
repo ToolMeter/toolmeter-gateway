@@ -1,11 +1,11 @@
 {
-  "name": "@toolmeter/gateway",
+  "name": "@toolwarden/gateway",
   "version": "0.2.0",
   "description": "Policy-enforcing MCP gateway: budgets, allow/ask/deny rules, and receipts for AI tool calls",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "toolmeter-gateway": "dist/cli.js"
+    "toolwarden-gateway": "dist/cli.js"
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -31,7 +31,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/toolmeter/toolmeter-gateway"
+    "url": "https://github.com/toolwarden/toolwarden-gateway"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

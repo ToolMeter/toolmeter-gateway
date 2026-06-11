@@ -8,10 +8,10 @@ import { readFileSync, existsSync } from 'node:fs'
 
 function usage(): never {
   console.error(`Usage:
-  toolmeter-gateway --config <toolmeter.yaml>          run the gateway (default command)
-  toolmeter-gateway receipts [--dir <dir>] [--month YYYY-MM] [--limit N]
+  toolwarden-gateway --config <toolwarden.yaml>          run the gateway (default command)
+  toolwarden-gateway receipts [--dir <dir>] [--month YYYY-MM] [--limit N]
                                                        spend summary and recent receipts
-  toolmeter-gateway verify [--dir <dir>]               verify receipt chain integrity`)
+  toolwarden-gateway verify [--dir <dir>]               verify receipt chain integrity`)
   process.exit(1)
 }
 
@@ -32,7 +32,7 @@ async function runGateway() {
   await gateway.server.connect(transport)
   // stderr only: stdout belongs to the MCP protocol
   console.error(
-    `toolmeter-gateway: proxying ${config.servers.length} server(s), ` +
+    `toolwarden-gateway: proxying ${config.servers.length} server(s), ` +
       `budget $${config.policy.budget.monthly} ${config.policy.budget.currency}/month, ` +
       `receipts in ${config.storage.dir}`,
   )
@@ -46,7 +46,7 @@ async function runGateway() {
 }
 
 function receiptsFile(): string {
-  const dir = expandHome(flag('dir', '~/.toolmeter')!)
+  const dir = expandHome(flag('dir', '~/.toolwarden')!)
   return join(dir, 'receipts.jsonl')
 }
 
@@ -125,7 +125,7 @@ if (command === 'receipts') {
   runVerify()
 } else if (command === 'run' || command?.startsWith('--')) {
   runGateway().catch((err) => {
-    console.error('toolmeter-gateway failed to start:', err)
+    console.error('toolwarden-gateway failed to start:', err)
     process.exit(1)
   })
 } else {

@@ -1,4 +1,4 @@
-# ToolMeter Gateway
+# ToolWarden Gateway
 
 A policy-enforcing MCP gateway. Put it between any MCP client and your MCP servers, write a `policy.yaml`, and every tool call gets checked against budgets, per-call ceilings, and allow/ask/deny rules. Every decision produces a receipt.
 
@@ -7,7 +7,7 @@ Payments for AI tools are getting solved by open protocols (x402, Stripe MPP, AP
 ```text
 MCP client (Claude Code, Claude Desktop, any MCP host)
         |
-  toolmeter-gateway     <- policy.yaml: budgets, limits, rules
+  toolwarden-gateway     <- policy.yaml: budgets, limits, rules
         |                  receipts.jsonl: one line per decision
   your MCP servers      <- unchanged
 ```
@@ -15,11 +15,11 @@ MCP client (Claude Code, Claude Desktop, any MCP host)
 ## Quick start
 
 ```bash
-git clone https://github.com/toolmeter/toolmeter-gateway
-cd toolmeter-gateway && pnpm install
+git clone https://github.com/toolwarden/toolwarden-gateway
+cd toolwarden-gateway && pnpm install
 ```
 
-Create `toolmeter.yaml`:
+Create `toolwarden.yaml`:
 
 ```yaml
 policy:
@@ -38,7 +38,7 @@ policy:
   default: allow
 
 storage:
-  dir: ~/.toolmeter      # receipts.jsonl and state.json live here
+  dir: ~/.toolwarden      # receipts.jsonl and state.json live here
 
 servers:
   - name: demo
@@ -55,15 +55,15 @@ Add the gateway to your MCP client. For Claude Code:
 ```json
 {
   "mcpServers": {
-    "toolmeter": {
+    "toolwarden": {
       "command": "npx",
-      "args": ["tsx", "src/cli.ts", "--config", "toolmeter.yaml"]
+      "args": ["tsx", "src/cli.ts", "--config", "toolwarden.yaml"]
     }
   }
 }
 ```
 
-The agent now sees your servers' tools (with price annotations in the descriptions), plus a built-in `toolmeter_status` tool it can call to check its own remaining budget.
+The agent now sees your servers' tools (with price annotations in the descriptions), plus a built-in `toolwarden_status` tool it can call to check its own remaining budget.
 
 ## What the agent experiences
 
@@ -119,9 +119,9 @@ Input and output are hashed, not stored: the receipt proves what was called with
 Inspect and audit from the command line:
 
 ```bash
-toolmeter-gateway receipts             # month summary, totals by tool, recent calls
-toolmeter-gateway receipts --month 2026-05 --limit 20
-toolmeter-gateway verify               # walk the hash chain, exit 2 if tampered
+toolwarden-gateway receipts             # month summary, totals by tool, recent calls
+toolwarden-gateway receipts --month 2026-05 --limit 20
+toolwarden-gateway verify               # walk the hash chain, exit 2 if tampered
 ```
 
 ## Policy semantics
@@ -142,6 +142,6 @@ pnpm build    # tsc to dist/
 
 ## Status
 
-Early prototype, built to test a hypothesis: that teams running agents need spend governance and audit before they need payment rails. If that matches a problem you have, open an issue or write to hello@toolmeter.ai.
+Early prototype, built to test a hypothesis: that teams running agents need spend governance and audit before they need payment rails. If that matches a problem you have, open an issue or write to hello@toolwarden.ai.
 
 MIT license.

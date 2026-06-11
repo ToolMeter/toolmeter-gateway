@@ -14,7 +14,7 @@ policy:
   default: allow
 
 storage:
-  dir: ./.toolmeter
+  dir: ./.toolwarden
 
 servers:
   - name: demo

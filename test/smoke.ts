@@ -9,7 +9,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 const root = resolve(import.meta.dirname, '..')
-const work = mkdtempSync(join(tmpdir(), 'toolmeter-smoke-'))
+const work = mkdtempSync(join(tmpdir(), 'toolwarden-smoke-'))
 
 const config = `
 policy:
@@ -25,7 +25,7 @@ policy:
       reason: training use forbidden
   default: allow
 storage:
-  dir: ${work}/.toolmeter
+  dir: ${work}/.toolwarden
 servers:
   - name: demo
     command: ${process.execPath}
@@ -37,7 +37,7 @@ servers:
       market_snapshot: 0.03
       "*": 0.0
 `
-const configPath = join(work, 'toolmeter.yaml')
+const configPath = join(work, 'toolwarden.yaml')
 writeFileSync(configPath, config)
 
 const client = new Client({ name: 'smoke-test', version: '0.0.0' })
@@ -57,7 +57,7 @@ const { tools } = await client.listTools()
 const names = tools.map((t) => t.name).sort()
 check(
   'tools exposed including status tool',
-  names.includes('toolmeter_status') && names.includes('echo') && names.includes('dataset_export'),
+  names.includes('toolwarden_status') && names.includes('echo') && names.includes('dataset_export'),
   names.join(', '),
 )
 
@@ -72,7 +72,7 @@ check('free tool call succeeds', !echo.isError)
 
 const shot = await client.callTool({
   name: 'render_screenshot',
-  arguments: { url: 'https://toolmeter.ai' },
+  arguments: { url: 'https://toolwarden.ai' },
 })
 check('cheap paid call is allowed', !shot.isError)
 
@@ -95,7 +95,7 @@ check(
   ask.isError === true && askText.includes('approval'),
 )
 
-const status = await client.callTool({ name: 'toolmeter_status', arguments: {} })
+const status = await client.callTool({ name: 'toolwarden_status', arguments: {} })
 const statusJson = JSON.parse((status.content as Array<{ text: string }>)[0].text)
 check(
   'status tool reports spend of exactly one screenshot',
@@ -103,7 +103,7 @@ check(
   `spent=${statusJson.spent_this_month}`,
 )
 
-const receipts = readFileSync(join(work, '.toolmeter', 'receipts.jsonl'), 'utf8')
+const receipts = readFileSync(join(work, '.toolwarden', 'receipts.jsonl'), 'utf8')
   .trim()
   .split('\n')
   .map((l) => JSON.parse(l))
@@ -143,7 +143,7 @@ await approver.connect(approverTransport)
 const approved = await approver.callTool({ name: 'market_snapshot', arguments: { symbol: 'TM' } })
 check('ask with elicitation approval goes through', !approved.isError)
 
-const status2 = await approver.callTool({ name: 'toolmeter_status', arguments: {} })
+const status2 = await approver.callTool({ name: 'toolwarden_status', arguments: {} })
 const statusJson2 = JSON.parse((status2.content as Array<{ text: string }>)[0].text)
 check(
   'spend now includes the approved snapshot',
@@ -152,7 +152,7 @@ check(
 )
 await approver.close()
 
-const receipts2 = readFileSync(join(work, '.toolmeter', 'receipts.jsonl'), 'utf8')
+const receipts2 = readFileSync(join(work, '.toolwarden', 'receipts.jsonl'), 'utf8')
   .trim()
   .split('\n')
   .map((l) => JSON.parse(l))
@@ -165,7 +165,7 @@ check(
 // CLI: verify must pass on the intact chain, then fail once tampered.
 const tsxBin = join(root, 'node_modules/tsx/dist/cli.mjs')
 const cliPath = join(root, 'src/cli.ts')
-const dir = join(work, '.toolmeter')
+const dir = join(work, '.toolwarden')
 const verifyOut = execFileSync(process.execPath, [tsxBin, cliPath, 'verify', '--dir', dir], {
   encoding: 'utf8',
 })

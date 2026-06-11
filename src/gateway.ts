@@ -21,9 +21,9 @@ type Upstream = {
 type RouteEntry = { upstream: Upstream; tool: Tool }
 
 const STATUS_TOOL: Tool = {
-  name: 'toolmeter_status',
+  name: 'toolwarden_status',
   description:
-    'Budget and usage status for this ToolMeter gateway: monthly budget, spend so far, calls made, and the receipts file location. Call this before expensive paid tools to check remaining budget.',
+    'Budget and usage status for this ToolWarden gateway: monthly budget, spend so far, calls made, and the receipts file location. Call this before expensive paid tools to check remaining budget.',
   inputSchema: { type: 'object', properties: {} },
 }
 
@@ -38,7 +38,7 @@ export class Gateway {
     this.state = new SpendState(config.storage.dir)
     this.receipts = new ReceiptLog(config.storage.dir)
     this.server = new Server(
-      { name: 'toolmeter-gateway', version: '0.1.0' },
+      { name: 'toolwarden-gateway', version: '0.1.0' },
       { capabilities: { tools: {} } },
     )
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -51,7 +51,7 @@ export class Gateway {
 
   async connectUpstreams(): Promise<void> {
     for (const sc of this.config.servers) {
-      const client = new Client({ name: 'toolmeter-gateway', version: '0.1.0' })
+      const client = new Client({ name: 'toolwarden-gateway', version: '0.1.0' })
       const transport = sc.url
         ? new StreamableHTTPClientTransport(new URL(sc.url))
         : new StdioClientTransport({
@@ -80,13 +80,13 @@ export class Gateway {
   private exposedTools(): Tool[] {
     return [...this.routes.entries()].map(([exposed, { upstream, tool }]) => {
       const cost = estimateCost(upstream.config, tool.name)
-      const priceNote = cost > 0 ? ` [ToolMeter: ~$${cost} ${this.config.policy.budget.currency} per call]` : ''
+      const priceNote = cost > 0 ? ` [ToolWarden: ~$${cost} ${this.config.policy.budget.currency} per call]` : ''
       return { ...tool, name: exposed, description: `${tool.description ?? ''}${priceNote}` }
     })
   }
 
   private async handleCall(name: string, args: Record<string, unknown>) {
-    if (name === 'toolmeter_status') return this.statusResult()
+    if (name === 'toolwarden_status') return this.statusResult()
 
     const route = this.routes.get(name)
     if (!route) {
@@ -122,7 +122,7 @@ export class Gateway {
         spent_month_after: this.state.spentThisMonth(),
       })
       return errorResult(
-        `ToolMeter blocked this call: ${verdict.reason}. ` +
+        `ToolWarden blocked this call: ${verdict.reason}. ` +
           `Receipt ${base.receipt_id} logged. Adjust policy.yaml to change this.`,
       )
     } else if (verdict.decision === 'ask') {
@@ -139,7 +139,7 @@ export class Gateway {
           spent_month_after: this.state.spentThisMonth(),
         })
         return errorResult(
-          `ToolMeter requires approval for this call (${verdict.reason}) and it was not approved. ` +
+          `ToolWarden requires approval for this call (${verdict.reason}) and it was not approved. ` +
             `Receipt ${base.receipt_id} logged.`,
         )
       }

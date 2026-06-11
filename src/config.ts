@@ -44,9 +44,9 @@ export const ConfigSchema = z.object({
   policy: PolicySchema.prefault({}),
   storage: z
     .object({
-      dir: z.string().default('~/.toolmeter'),
+      dir: z.string().default('~/.toolwarden'),
     })
-    .default({ dir: '~/.toolmeter' }),
+    .default({ dir: '~/.toolwarden' }),
   servers: z.array(ServerSchema).min(1),
 })
 
