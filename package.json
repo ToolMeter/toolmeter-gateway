@@ -1,6 +1,6 @@
 {
   "name": "@toolwarden/gateway",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Policy-enforcing MCP gateway: budgets, allow/ask/deny rules, and receipts for AI tool calls",
   "license": "MIT",
   "type": "module",
@@ -18,7 +18,8 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "smoke": "tsx test/smoke.ts",
-    "prepublishOnly": "tsc && vitest run && tsx test/smoke.ts"
+    "prepublishOnly": "tsc && vitest run && tsx test/smoke.ts && tsx test/smoke-http.ts",
+    "smoke:http": "tsx test/smoke-http.ts"
   },
   "keywords": [
     "mcp",

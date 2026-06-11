@@ -172,4 +172,25 @@ describe('evaluate', () => {
     const v = evaluate(p, 'demo:pricey', 0.01, ctx({ callsLastHourMatching: () => 5 }))
     expect(v.decision).toBe('deny')
   })
+
+  it('principal budget denies when that caller is exhausted', () => {
+    const v = evaluate(
+      policy(),
+      'demo:echo',
+      0.01,
+      ctx({ principal: { name: 'alice', spent: 1.995, monthlyBudget: 2 } }),
+    )
+    expect(v.decision).toBe('deny')
+    expect(v.reason).toContain('principal "alice"')
+  })
+
+  it('principal without a budget is only bound by global limits', () => {
+    const v = evaluate(
+      policy(),
+      'demo:echo',
+      0.01,
+      ctx({ principal: { name: 'bob', spent: 999 } }),
+    )
+    expect(v.decision).toBe('allow')
+  })
 })

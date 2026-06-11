@@ -21,3 +21,4 @@ jobs:
       - run: pnpm exec tsc
       - run: pnpm exec vitest run
       - run: pnpm exec tsx test/smoke.ts
+      - run: pnpm exec tsx test/smoke-http.ts

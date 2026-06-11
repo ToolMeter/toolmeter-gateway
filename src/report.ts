@@ -33,6 +33,28 @@ export function buildReport(file: string, month: string): string {
     byTool.set(key, row)
   }
 
+  const byPrincipal = new Map<string, { calls: number; spent: number; blocked: number }>()
+  for (const r of receipts) {
+    const name = r.principal ?? 'local'
+    const row = byPrincipal.get(name) ?? { calls: 0, spent: 0, blocked: 0 }
+    row.calls++
+    if (r.status === 'success') row.spent += r.est_cost
+    if (r.status === 'blocked') row.blocked++
+    byPrincipal.set(name, row)
+  }
+  const principalRows =
+    byPrincipal.size > 1
+      ? [...byPrincipal.entries()]
+          .sort((a, b) => b[1].spent - a[1].spent)
+          .map(
+            ([name, row]) =>
+              `<tr><td class="mono">${esc(name)}</td><td>${row.calls}</td><td>${money(row.spent)}</td><td>${
+                row.blocked || ''
+              }</td></tr>`,
+          )
+          .join('\n')
+      : ''
+
   const toolRows = [...byTool.entries()]
     .sort((a, b) => b[1].spent - a[1].spent)
     .map(([key, row]) => {
@@ -108,6 +130,15 @@ export function buildReport(file: string, month: string): string {
         : `Receipt chain BROKEN at entry ${chain.brokenAt}: ${esc(chain.error ?? '')}`
     }
   </div>
+  ${
+    principalRows
+      ? `<h2 style="margin-top:36px">By principal</h2>
+  <table>
+    <thead><tr><th>Principal</th><th>Calls</th><th>Spent</th><th>Blocked</th></tr></thead>
+    <tbody>${principalRows}</tbody>
+  </table>`
+      : ''
+  }
   <h2 style="margin-top:36px">By tool</h2>
   <table>
     <thead><tr><th>Tool</th><th>Calls</th><th>Spent</th><th>Blocked</th><th>Median latency</th></tr></thead>

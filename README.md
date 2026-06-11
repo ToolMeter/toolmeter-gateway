@@ -84,6 +84,29 @@ The agent now sees your servers' tools (with price annotations in the descriptio
 - A call at or above `ask_above` triggers an approval prompt in clients that support MCP elicitation. Clients without elicitation get a clean deny that explains why.
 - A failed upstream call is never charged against the budget.
 
+## Team mode: one gateway, many callers
+
+Run the gateway as a shared HTTP service so a whole team (or a fleet of agents) flows through one policy with central receipts:
+
+```yaml
+serve:
+  port: 8484
+  principals:
+    - name: alice
+      token: ${TW_TOKEN_ALICE}   # env-expanded, keep secrets out of the file
+      monthly_budget: 2.00       # her own ceiling inside the global budget
+    - name: ci-bot
+      token: ${TW_TOKEN_CI}
+```
+
+```bash
+toolwarden-gateway serve --config toolwarden.yaml
+```
+
+Clients connect to `http://host:8484/mcp` with `Authorization: Bearer <token>`. Every call is attributed to its principal in receipts, per-principal budgets are enforced on top of the global one, and the gateway refuses to start serving without principals configured.
+
+Policy edits hot-reload: change `toolwarden.yaml` and the running gateway applies the new rules to live sessions without a restart.
+
 ## Governance works before payments exist
 
 Policy is useful on entirely free tools. `examples/govern-free-tools.yaml` wraps the official filesystem MCP server so reads pass, writes require approval, destructive operations are denied, and everything is logged. No prices involved.

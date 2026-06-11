@@ -5,6 +5,7 @@ import { join } from 'node:path'
 export type ReceiptBody = {
   receipt_id: string
   ts: string
+  principal: string
   server: string
   tool: string
   decision: 'allow' | 'deny' | 'ask_approved' | 'ask_denied'

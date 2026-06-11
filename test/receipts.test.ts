@@ -9,6 +9,7 @@ function body(overrides: Partial<ReceiptBody> = {}): ReceiptBody {
   return {
     receipt_id: newReceiptId(),
     ts: new Date().toISOString(),
+    principal: 'local',
     server: 'demo',
     tool: 'echo',
     decision: 'allow',

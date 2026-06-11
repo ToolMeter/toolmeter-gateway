@@ -15,6 +15,12 @@ export type PolicyContext = {
   spentMatching: (pattern: string) => number
   /** Executed calls in the last hour across keys matching a glob. */
   callsLastHourMatching: (pattern: string) => number
+  /** Caller identity and its spend, when running with principals. */
+  principal?: {
+    name: string
+    spent: number
+    monthlyBudget?: number
+  }
 }
 
 export function estimateCost(server: ServerConfig, tool: string): number {
@@ -56,6 +62,18 @@ export function evaluate(
     return {
       decision: 'deny',
       reason: `monthly budget exhausted ($${ctx.committed.toFixed(4)} committed of $${policy.budget.monthly})`,
+      estCost,
+    }
+  }
+
+  const principal = ctx.principal
+  if (
+    principal?.monthlyBudget !== undefined &&
+    principal.spent + estCost > principal.monthlyBudget
+  ) {
+    return {
+      decision: 'deny',
+      reason: `budget for principal "${principal.name}" exhausted ($${principal.spent.toFixed(4)} spent of $${principal.monthlyBudget})`,
       estCost,
     }
   }

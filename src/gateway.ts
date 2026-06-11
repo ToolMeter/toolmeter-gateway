@@ -7,7 +7,7 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import type { Config, ServerConfig } from './config.js'
+import type { Config, Policy, Principal, ServerConfig } from './config.js'
 import { estimateCost, evaluate } from './policy.js'
 import { SpendState } from './state.js'
 import { ReceiptLog, hashPayload, newReceiptId, type ReceiptBody } from './receipts.js'
@@ -27,31 +27,47 @@ const STATUS_TOOL: Tool = {
   inputSchema: { type: 'object', properties: {} },
 }
 
-export class Gateway {
-  readonly server: Server
+/**
+ * Shared state behind every session: upstream connections, policy, spend,
+ * receipts. Stdio mode runs one session; serve mode runs one per client.
+ */
+export class GatewayCore {
   private upstreams: Upstream[] = []
   private routes = new Map<string, RouteEntry>()
-  private state: SpendState
-  private receipts: ReceiptLog
+  readonly state: SpendState
+  readonly receipts: ReceiptLog
+  private policy: Policy
+  private prices = new Map<string, ServerConfig['prices']>()
 
   constructor(private config: Config) {
     this.state = new SpendState(config.storage.dir)
     this.receipts = new ReceiptLog(config.storage.dir)
-    this.server = new Server(
-      { name: 'toolwarden-gateway', version: '0.1.0' },
-      { capabilities: { tools: {} } },
-    )
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [STATUS_TOOL, ...this.exposedTools()],
-    }))
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) =>
-      this.handleCall(request.params.name, request.params.arguments ?? {}),
-    )
+    this.policy = config.policy
+    for (const s of config.servers) this.prices.set(s.name, s.prices)
+  }
+
+  get currency(): string {
+    return this.policy.budget.currency
+  }
+
+  get budgetMonthly(): number {
+    return this.policy.budget.monthly
+  }
+
+  /** Hot-swap policy and prices from a re-read config. Servers stay as they are. */
+  applyConfig(next: Config): void {
+    this.policy = next.policy
+    this.prices.clear()
+    for (const s of next.servers) this.prices.set(s.name, s.prices)
+  }
+
+  findPrincipal(token: string): Principal | undefined {
+    return this.config.serve.principals.find((p) => p.token === token)
   }
 
   async connectUpstreams(): Promise<void> {
     for (const sc of this.config.servers) {
-      const client = new Client({ name: 'toolwarden-gateway', version: '0.1.0' })
+      const client = new Client({ name: 'toolwarden-gateway', version: '0.4.0' })
       const transport = sc.url
         ? new StreamableHTTPClientTransport(new URL(sc.url))
         : new StdioClientTransport({
@@ -77,16 +93,26 @@ export class Gateway {
     }
   }
 
-  private exposedTools(): Tool[] {
+  private estimate(server: string, tool: string): number {
+    const prices = this.prices.get(server) ?? {}
+    return estimateCost({ prices } as ServerConfig, tool)
+  }
+
+  exposedTools(): Tool[] {
     return [...this.routes.entries()].map(([exposed, { upstream, tool }]) => {
-      const cost = estimateCost(upstream.config, tool.name)
-      const priceNote = cost > 0 ? ` [ToolWarden: ~$${cost} ${this.config.policy.budget.currency} per call]` : ''
+      const cost = this.estimate(upstream.config.name, tool.name)
+      const priceNote = cost > 0 ? ` [ToolWarden: ~$${cost} ${this.currency} per call]` : ''
       return { ...tool, name: exposed, description: `${tool.description ?? ''}${priceNote}` }
     })
   }
 
-  private async handleCall(name: string, args: Record<string, unknown>) {
-    if (name === 'toolwarden_status') return this.statusResult()
+  async handleCall(
+    principal: Principal,
+    askApproval: (message: string) => Promise<boolean>,
+    name: string,
+    args: Record<string, unknown>,
+  ) {
+    if (name === 'toolwarden_status') return this.statusResult(principal)
 
     const route = this.routes.get(name)
     if (!route) {
@@ -94,24 +120,30 @@ export class Gateway {
     }
     const { upstream, tool } = route
     const key = `${upstream.config.name}:${tool.name}`
-    const estCost = estimateCost(upstream.config, tool.name)
+    const estCost = this.estimate(upstream.config.name, tool.name)
     // committed includes reservations held by concurrent in-flight calls,
     // so parallel calls cannot jointly overdraw the budget.
-    const verdict = evaluate(this.config.policy, key, estCost, {
+    const verdict = evaluate(this.policy, key, estCost, {
       committed: this.state.committedThisMonth(),
       spentMatching: (p) => this.state.spentThisMonthMatching(p),
       callsLastHourMatching: (p) => this.state.callsLastHourMatching(p),
+      principal: {
+        name: principal.name,
+        spent: this.state.spentThisMonthByPrincipal(principal.name),
+        monthlyBudget: principal.monthly_budget,
+      },
     })
 
     const base = {
       receipt_id: newReceiptId(),
       ts: new Date().toISOString(),
+      principal: principal.name,
       server: upstream.config.name,
       tool: tool.name,
       est_cost: estCost,
-      currency: this.config.policy.budget.currency,
+      currency: this.currency,
       input_hash: hashPayload(args),
-      budget_monthly: this.config.policy.budget.monthly,
+      budget_monthly: this.budgetMonthly,
     }
 
     let decision: ReceiptBody['decision']
@@ -130,7 +162,9 @@ export class Gateway {
           `Receipt ${base.receipt_id} logged. Adjust policy.yaml to change this.`,
       )
     } else if (verdict.decision === 'ask') {
-      const approved = await this.askApproval(key, estCost, verdict.reason)
+      const approved = await askApproval(
+        `Approve paid tool call ${key} (estimated $${estCost} ${this.currency})? Policy: ${verdict.reason}`,
+      )
       decision = approved ? 'ask_approved' : 'ask_denied'
       if (!approved) {
         this.receipts.append({
@@ -161,7 +195,7 @@ export class Gateway {
       const latency = Date.now() - started
       // Meter only successful calls: a tool error is the provider's failure,
       // so the budget is not charged for it.
-      this.state.settle(estCost, !result.isError && estCost > 0, key)
+      this.state.settle(estCost, !result.isError && estCost > 0, key, principal.name)
       this.receipts.append({
         ...base,
         decision,
@@ -173,7 +207,7 @@ export class Gateway {
       })
       return result
     } catch (err) {
-      this.state.settle(estCost, false, key)
+      this.state.settle(estCost, false, key, principal.name)
       this.receipts.append({
         ...base,
         decision,
@@ -187,39 +221,28 @@ export class Gateway {
     }
   }
 
-  private async askApproval(key: string, estCost: number, reason: string): Promise<boolean> {
-    const caps = this.server.getClientCapabilities()
-    if (!caps?.elicitation) return false
-    try {
-      const res = await this.server.elicitInput({
-        message: `Approve paid tool call ${key} (estimated $${estCost} ${this.config.policy.budget.currency})? Policy: ${reason}`,
-        requestedSchema: {
-          type: 'object',
-          properties: {
-            approve: { type: 'boolean', title: 'Approve this call' },
-          },
-          required: ['approve'],
-        },
-      })
-      return res.action === 'accept' && (res.content as { approve?: boolean })?.approve === true
-    } catch {
-      return false
-    }
-  }
-
-  private statusResult() {
-    const budget = this.config.policy.budget
+  private statusResult(principal: Principal) {
     const spent = this.state.spentThisMonth()
+    const principalSpent = this.state.spentThisMonthByPrincipal(principal.name)
     return {
       content: [
         {
           type: 'text' as const,
           text: JSON.stringify(
             {
-              budget_monthly: budget.monthly,
-              currency: budget.currency,
+              principal: principal.name,
+              budget_monthly: this.budgetMonthly,
+              currency: this.currency,
               spent_this_month: spent,
-              remaining: budget.monthly > 0 ? Number((budget.monthly - spent).toFixed(10)) : null,
+              remaining: this.budgetMonthly > 0 ? Number((this.budgetMonthly - spent).toFixed(10)) : null,
+              principal_spent_this_month: principalSpent,
+              principal_budget:
+                principal.monthly_budget === undefined
+                  ? null
+                  : {
+                      monthly: principal.monthly_budget,
+                      remaining: Number((principal.monthly_budget - principalSpent).toFixed(10)),
+                    },
               calls_this_month: this.state.callsThisMonth(),
               receipts_file: this.receipts.file,
             },
@@ -234,6 +257,42 @@ export class Gateway {
   async close(): Promise<void> {
     await Promise.allSettled(this.upstreams.map((u) => u.client.close()))
   }
+}
+
+export const LOCAL_PRINCIPAL: Principal = { name: 'local', token: 'local-stdio' }
+
+/** One MCP server session bound to a principal, routing into the shared core. */
+export function createSessionServer(core: GatewayCore, principal: Principal): Server {
+  const server = new Server(
+    { name: 'toolwarden-gateway', version: '0.4.0' },
+    { capabilities: { tools: {} } },
+  )
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+    tools: [STATUS_TOOL, ...core.exposedTools()],
+  }))
+  const askApproval = async (message: string): Promise<boolean> => {
+    const caps = server.getClientCapabilities()
+    if (!caps?.elicitation) return false
+    try {
+      const res = await server.elicitInput({
+        message,
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            approve: { type: 'boolean', title: 'Approve this call' },
+          },
+          required: ['approve'],
+        },
+      })
+      return res.action === 'accept' && (res.content as { approve?: boolean })?.approve === true
+    } catch {
+      return false
+    }
+  }
+  server.setRequestHandler(CallToolRequestSchema, async (request) =>
+    core.handleCall(principal, askApproval, request.params.name, request.params.arguments ?? {}),
+  )
+  return server
 }
 
 function errorResult(message: string) {

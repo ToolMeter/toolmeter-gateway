@@ -43,6 +43,18 @@ const ServerSchema = z
     message: 'server needs either command (stdio) or url (streamable http)',
   })
 
+const PrincipalSchema = z.object({
+  name: z.string().regex(/^[a-zA-Z0-9_-]+$/, 'principal name must be alphanumeric, dash, or underscore'),
+  token: z.string().min(8, 'tokens shorter than 8 characters are too guessable'),
+  monthly_budget: z.number().nonnegative().optional(),
+})
+
+const ServeSchema = z.object({
+  port: z.number().int().positive().default(8484),
+  host: z.string().default('127.0.0.1'),
+  principals: z.array(PrincipalSchema).default([]),
+})
+
 export const ConfigSchema = z.object({
   policy: PolicySchema.prefault({}),
   storage: z
@@ -50,6 +62,7 @@ export const ConfigSchema = z.object({
       dir: z.string().default('~/.toolwarden'),
     })
     .default({ dir: '~/.toolwarden' }),
+  serve: ServeSchema.prefault({}),
   servers: z.array(ServerSchema).min(1),
 })
 
@@ -57,6 +70,7 @@ export type Config = z.infer<typeof ConfigSchema>
 export type Policy = z.infer<typeof PolicySchema>
 export type ServerConfig = z.infer<typeof ServerSchema>
 export type Rule = z.infer<typeof RuleSchema>
+export type Principal = z.infer<typeof PrincipalSchema>
 
 export function expandHome(p: string): string {
   if (p === '~') return homedir()
@@ -64,10 +78,19 @@ export function expandHome(p: string): string {
   return p
 }
 
+// ${VAR} in token values resolves from the environment, so config files
+// can be committed without secrets in them.
+function expandEnv(value: string): string {
+  return value.replace(/\$\{([A-Z0-9_]+)\}/gi, (whole, name) => process.env[name] ?? whole)
+}
+
 export function loadConfig(path: string): Config {
   const raw = readFileSync(path, 'utf8')
   const parsed = parse(raw)
   const config = ConfigSchema.parse(parsed)
+  for (const principal of config.serve.principals) {
+    principal.token = expandEnv(principal.token)
+  }
   // Relative paths resolve against the config file location, not the process
   // cwd, so the same config works from any directory.
   const base = dirname(resolve(path))

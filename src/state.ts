@@ -2,7 +2,12 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { globMatch } from './glob.js'
 
-type MonthState = { spent: number; calls: number; byKey: Record<string, number> }
+type MonthState = {
+  spent: number
+  calls: number
+  byKey: Record<string, number>
+  byPrincipal: Record<string, number>
+}
 type StateFile = {
   months: Record<string, MonthState>
   // Epoch ms of executed calls per server:tool key, pruned to the last hour.
@@ -30,6 +35,7 @@ export class SpendState {
     this.state = { months: loaded.months ?? {}, recent: loaded.recent ?? {} }
     for (const month of Object.values(this.state.months)) {
       month.byKey ??= {}
+      month.byPrincipal ??= {}
     }
   }
 
@@ -52,6 +58,11 @@ export class SpendState {
 
   callsThisMonth(): number {
     return this.state.months[this.monthKey()]?.calls ?? 0
+  }
+
+  /** Settled spend this month attributed to one principal. */
+  spentThisMonthByPrincipal(principal: string): number {
+    return this.state.months[this.monthKey()]?.byPrincipal[principal] ?? 0
   }
 
   /** Settled spend this month across keys matching a policy glob. */
@@ -89,18 +100,21 @@ export class SpendState {
   }
 
   /** Settle a reservation: charge it if the call succeeded, drop it otherwise. */
-  settle(amount: number, charge: boolean, key?: string): void {
+  settle(amount: number, charge: boolean, key?: string, principal?: string): void {
     this.pending = Math.max(0, Number((this.pending - amount).toFixed(10)))
-    if (charge) this.charge(amount, key)
+    if (charge) this.charge(amount, key, principal)
   }
 
-  charge(amount: number, key?: string): void {
+  charge(amount: number, key?: string, principal?: string): void {
     const monthKey = this.monthKey()
-    const month = this.state.months[monthKey] ?? { spent: 0, calls: 0, byKey: {} }
+    const month = this.state.months[monthKey] ?? { spent: 0, calls: 0, byKey: {}, byPrincipal: {} }
     month.spent = Number((month.spent + amount).toFixed(10))
     month.calls += 1
     if (key) {
       month.byKey[key] = Number(((month.byKey[key] ?? 0) + amount).toFixed(10))
+    }
+    if (principal) {
+      month.byPrincipal[principal] = Number(((month.byPrincipal[principal] ?? 0) + amount).toFixed(10))
     }
     this.state.months[monthKey] = month
     this.persist()

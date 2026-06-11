@@ -2,15 +2,17 @@
 import { join } from 'node:path'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { expandHome, loadConfig } from './config.js'
-import { Gateway } from './gateway.js'
+import { GatewayCore, createSessionServer, LOCAL_PRINCIPAL } from './gateway.js'
 import { readReceipts, verifyChain, type Receipt } from './receipts.js'
 import { buildReport } from './report.js'
 import { runInit } from './init.js'
-import { readFileSync, existsSync, writeFileSync } from 'node:fs'
+import { serve } from './serve.js'
+import { readFileSync, existsSync, writeFileSync, watch } from 'node:fs'
 
 function usage(): never {
   console.error(`Usage:
   toolwarden-gateway --config <toolwarden.yaml>          run the gateway (default command)
+  toolwarden-gateway serve --config <toolwarden.yaml>    shared HTTP gateway with bearer auth
   toolwarden-gateway init [--from <mcp.json>] [--out <toolwarden.yaml>]
                                                        wrap an existing MCP config
   toolwarden-gateway receipts [--dir <dir>] [--month YYYY-MM] [--limit N]
@@ -19,6 +21,30 @@ function usage(): never {
                                                        self-contained HTML audit report
   toolwarden-gateway verify [--dir <dir>]               verify receipt chain integrity`)
   process.exit(1)
+}
+
+/** Re-read policy and prices when the config file changes, without restart. */
+function watchPolicy(configPath: string, core: import('./gateway.js').GatewayCore): void {
+  let timer: NodeJS.Timeout | undefined
+  try {
+    watch(configPath, () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        try {
+          core.applyConfig(loadConfig(configPath))
+          console.error(`toolwarden-gateway: reloaded policy from ${configPath}`)
+        } catch (err) {
+          console.error(
+            `toolwarden-gateway: config reload failed, keeping previous policy: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          )
+        }
+      }, 300)
+    })
+  } catch {
+    // Watching is best-effort; a restart always picks up changes.
+  }
 }
 
 function flag(name: string, fallback?: string): string | undefined {
@@ -31,11 +57,13 @@ async function runGateway() {
   if (!configPath) usage()
 
   const config = loadConfig(configPath)
-  const gateway = new Gateway(config)
-  await gateway.connectUpstreams()
+  const core = new GatewayCore(config)
+  await core.connectUpstreams()
+  watchPolicy(configPath, core)
 
+  const server = createSessionServer(core, LOCAL_PRINCIPAL)
   const transport = new StdioServerTransport()
-  await gateway.server.connect(transport)
+  await server.connect(transport)
   // stderr only: stdout belongs to the MCP protocol
   console.error(
     `toolwarden-gateway: proxying ${config.servers.length} server(s), ` +
@@ -44,7 +72,26 @@ async function runGateway() {
   )
 
   const shutdown = async () => {
-    await gateway.close()
+    await core.close()
+    process.exit(0)
+  }
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
+}
+
+async function runServe() {
+  const configPath = flag('config')
+  if (!configPath) usage()
+
+  const config = loadConfig(configPath)
+  const core = new GatewayCore(config)
+  await core.connectUpstreams()
+  watchPolicy(configPath, core)
+
+  const stop = await serve(core, config)
+  const shutdown = async () => {
+    await stop()
+    await core.close()
     process.exit(0)
   }
   process.on('SIGINT', shutdown)
@@ -100,8 +147,9 @@ function runReceipts() {
 
   console.log(`\nLast ${Math.min(limit, inMonth.length)}:`)
   for (const r of inMonth.slice(-limit)) {
+    const who = r.principal && r.principal !== 'local' ? ` ${r.principal.padEnd(10)}` : ''
     console.log(
-      `  ${r.ts}  ${r.receipt_id}  ${(r.server + ':' + r.tool).padEnd(30)} ${r.decision.padEnd(12)} ${
+      `  ${r.ts}  ${r.receipt_id} ${who} ${(r.server + ':' + r.tool).padEnd(30)} ${r.decision.padEnd(12)} ${
         r.status.padEnd(8)
       } $${r.est_cost}`,
     )
@@ -142,6 +190,11 @@ if (command === 'receipts') {
   runReport()
 } else if (command === 'init') {
   runInit(flag('from'), flag('out', 'toolwarden.yaml')!)
+} else if (command === 'serve') {
+  runServe().catch((err) => {
+    console.error('toolwarden-gateway serve failed to start:', err)
+    process.exit(1)
+  })
 } else if (command === 'run' || command?.startsWith('--')) {
   runGateway().catch((err) => {
     console.error('toolwarden-gateway failed to start:', err)
