@@ -10,7 +10,7 @@ import {
 import type { Config, ServerConfig } from './config.js'
 import { estimateCost, evaluate } from './policy.js'
 import { SpendState } from './state.js'
-import { ReceiptLog, hashPayload, newReceiptId, type Receipt } from './receipts.js'
+import { ReceiptLog, hashPayload, newReceiptId, type ReceiptBody } from './receipts.js'
 
 type Upstream = {
   config: ServerConfig
@@ -95,7 +95,9 @@ export class Gateway {
     const { upstream, tool } = route
     const key = `${upstream.config.name}:${tool.name}`
     const estCost = estimateCost(upstream.config, tool.name)
-    const verdict = evaluate(this.config.policy, key, estCost, this.state.spentThisMonth())
+    // committedThisMonth includes reservations held by concurrent in-flight
+    // calls, so parallel calls cannot jointly overdraw the budget.
+    const verdict = evaluate(this.config.policy, key, estCost, this.state.committedThisMonth())
 
     const base = {
       receipt_id: newReceiptId(),
@@ -108,7 +110,7 @@ export class Gateway {
       budget_monthly: this.config.policy.budget.monthly,
     }
 
-    let decision: Receipt['decision']
+    let decision: ReceiptBody['decision']
     if (verdict.decision === 'deny') {
       this.receipts.append({
         ...base,
@@ -146,12 +148,13 @@ export class Gateway {
     }
 
     const started = Date.now()
+    this.state.reserve(estCost)
     try {
       const result = await upstream.client.callTool({ name: tool.name, arguments: args })
       const latency = Date.now() - started
       // Meter only successful calls: a tool error is the provider's failure,
       // so the budget is not charged for it.
-      if (!result.isError && estCost > 0) this.state.charge(estCost)
+      this.state.settle(estCost, !result.isError && estCost > 0)
       this.receipts.append({
         ...base,
         decision,
@@ -163,6 +166,7 @@ export class Gateway {
       })
       return result
     } catch (err) {
+      this.state.settle(estCost, false)
       this.receipts.append({
         ...base,
         decision,

@@ -1,16 +1,27 @@
 #!/usr/bin/env node
+import { join } from 'node:path'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { loadConfig } from './config.js'
+import { expandHome, loadConfig } from './config.js'
 import { Gateway } from './gateway.js'
+import { readReceipts, verifyChain, type Receipt } from './receipts.js'
+import { readFileSync, existsSync } from 'node:fs'
 
 function usage(): never {
-  console.error('Usage: toolmeter-gateway --config <toolmeter.yaml>')
+  console.error(`Usage:
+  toolmeter-gateway --config <toolmeter.yaml>          run the gateway (default command)
+  toolmeter-gateway receipts [--dir <dir>] [--month YYYY-MM] [--limit N]
+                                                       spend summary and recent receipts
+  toolmeter-gateway verify [--dir <dir>]               verify receipt chain integrity`)
   process.exit(1)
 }
 
-async function main() {
-  const idx = process.argv.indexOf('--config')
-  const configPath = idx >= 0 ? process.argv[idx + 1] : undefined
+function flag(name: string, fallback?: string): string | undefined {
+  const idx = process.argv.indexOf(`--${name}`)
+  return idx >= 0 ? process.argv[idx + 1] : fallback
+}
+
+async function runGateway() {
+  const configPath = flag('config')
   if (!configPath) usage()
 
   const config = loadConfig(configPath)
@@ -34,7 +45,89 @@ async function main() {
   process.on('SIGTERM', shutdown)
 }
 
-main().catch((err) => {
-  console.error('toolmeter-gateway failed to start:', err)
-  process.exit(1)
-})
+function receiptsFile(): string {
+  const dir = expandHome(flag('dir', '~/.toolmeter')!)
+  return join(dir, 'receipts.jsonl')
+}
+
+function runReceipts() {
+  const file = receiptsFile()
+  const month = flag('month', new Date().toISOString().slice(0, 7))!
+  const limit = Number(flag('limit', '10'))
+  const all = readReceipts(file)
+  const inMonth = all.filter((r) => r.ts.startsWith(month))
+
+  if (inMonth.length === 0) {
+    console.log(`No receipts for ${month} in ${file}`)
+    return
+  }
+
+  const spent = inMonth
+    .filter((r) => r.status === 'success')
+    .reduce((sum, r) => sum + r.est_cost, 0)
+  const blocked = inMonth.filter((r) => r.status === 'blocked')
+  const currency = inMonth[0].currency
+
+  console.log(`Receipts for ${month}  (${file})`)
+  console.log(`  calls:    ${inMonth.length}`)
+  console.log(`  spent:    $${spent.toFixed(4)} ${currency}`)
+  console.log(`  blocked:  ${blocked.length}`)
+
+  const byTool = new Map<string, { calls: number; spent: number; blocked: number }>()
+  for (const r of inMonth) {
+    const key = `${r.server}:${r.tool}`
+    const row = byTool.get(key) ?? { calls: 0, spent: 0, blocked: 0 }
+    row.calls++
+    if (r.status === 'success') row.spent += r.est_cost
+    if (r.status === 'blocked') row.blocked++
+    byTool.set(key, row)
+  }
+  console.log('\nBy tool:')
+  const rows = [...byTool.entries()].sort((a, b) => b[1].spent - a[1].spent)
+  for (const [key, row] of rows) {
+    console.log(
+      `  ${key.padEnd(36)} ${String(row.calls).padStart(5)} calls   $${row.spent
+        .toFixed(4)
+        .padStart(9)}   ${row.blocked ? `${row.blocked} blocked` : ''}`,
+    )
+  }
+
+  console.log(`\nLast ${Math.min(limit, inMonth.length)}:`)
+  for (const r of inMonth.slice(-limit)) {
+    console.log(
+      `  ${r.ts}  ${r.receipt_id}  ${(r.server + ':' + r.tool).padEnd(30)} ${r.decision.padEnd(12)} ${
+        r.status.padEnd(8)
+      } $${r.est_cost}`,
+    )
+  }
+}
+
+function runVerify() {
+  const file = receiptsFile()
+  if (!existsSync(file)) {
+    console.log(`No receipts file at ${file}`)
+    return
+  }
+  const lines = readFileSync(file, 'utf8').trim().split('\n').filter(Boolean)
+  const result = verifyChain(lines)
+  if (result.ok) {
+    console.log(`OK: ${result.count} receipts, chain intact.`)
+  } else {
+    console.error(`TAMPERED: chain broken at line ${result.brokenAt} of ${result.count}: ${result.error}`)
+    process.exit(2)
+  }
+}
+
+const command = process.argv[2]
+if (command === 'receipts') {
+  runReceipts()
+} else if (command === 'verify') {
+  runVerify()
+} else if (command === 'run' || command?.startsWith('--')) {
+  runGateway().catch((err) => {
+    console.error('toolmeter-gateway failed to start:', err)
+    process.exit(1)
+  })
+} else {
+  usage()
+}

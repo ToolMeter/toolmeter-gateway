@@ -72,9 +72,26 @@ The agent now sees your servers' tools (with price annotations in the descriptio
 - A call at or above `ask_above` triggers an approval prompt in clients that support MCP elicitation. Clients without elicitation get a clean deny that explains why.
 - A failed upstream call is never charged against the budget.
 
+## Governance works before payments exist
+
+Policy is useful on entirely free tools. `examples/govern-free-tools.yaml` wraps the official filesystem MCP server so reads pass, writes require approval, destructive operations are denied, and everything is logged. No prices involved.
+
+```yaml
+rules:
+  - match: "fs:read_*"
+    action: allow
+  - match: "fs:write_file"
+    action: ask
+    reason: writes need human approval in this workspace
+  - match: "fs:move_file"
+    action: deny
+    reason: destructive operations are disabled
+default: deny
+```
+
 ## Receipts
 
-Every decision appends one line to `receipts.jsonl`:
+Every decision appends one line to `receipts.jsonl`. Receipts are hash-chained: each entry carries the hash of the previous one and its own content hash, so any edit, deletion, or reordering of the log is detectable.
 
 ```json
 {
@@ -91,11 +108,21 @@ Every decision appends one line to `receipts.jsonl`:
   "input_hash": "sha256:a1b2c3d4e5f60708",
   "output_hash": "sha256:0807f6e5d4c3b2a1",
   "spent_month_after": 0.21,
-  "budget_monthly": 5
+  "budget_monthly": 5,
+  "prev": "sha256:...",
+  "hash": "sha256:..."
 }
 ```
 
 Input and output are hashed, not stored: the receipt proves what was called without retaining payloads.
+
+Inspect and audit from the command line:
+
+```bash
+toolmeter-gateway receipts             # month summary, totals by tool, recent calls
+toolmeter-gateway receipts --month 2026-05 --limit 20
+toolmeter-gateway verify               # walk the hash chain, exit 2 if tampered
+```
 
 ## Policy semantics
 
@@ -103,6 +130,7 @@ Input and output are hashed, not stored: the receipt proves what was called with
 2. `max_per_call` and the monthly budget always apply, even to calls a rule allows.
 3. An explicit `allow` rule is pre-approval: it skips `ask_above`.
 4. Unmatched calls fall back to `default`, with `ask_above` escalating allow to ask.
+5. Concurrent calls reserve their estimated cost before executing, so parallel calls cannot jointly overdraw the budget. Reservations settle on success and release on failure.
 
 ## Development
 

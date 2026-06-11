@@ -1,0 +1,42 @@
+# Governance without payments: put policy on a real, free MCP server.
+#
+# This wraps the official filesystem server. Reads are allowed, writes
+# require approval, deletes are denied outright. Every decision is logged
+# as a receipt. No prices involved: governance is useful before any tool
+# costs money.
+#
+# Run with:
+#   toolmeter-gateway --config examples/govern-free-tools.yaml
+
+policy:
+  budget:
+    monthly: 0          # no budget enforcement, this is pure access control
+  rules:
+    - match: "fs:read_file"
+      action: allow
+    - match: "fs:read_*"
+      action: allow
+    - match: "fs:list_*"
+      action: allow
+    - match: "fs:get_file_info"
+      action: allow
+    - match: "fs:search_files"
+      action: allow
+    - match: "fs:write_file"
+      action: ask
+      reason: writes need human approval in this workspace
+    - match: "fs:edit_file"
+      action: ask
+      reason: edits need human approval in this workspace
+    - match: "fs:move_file"
+      action: deny
+      reason: destructive operations are disabled
+  default: deny         # anything unlisted is blocked
+
+storage:
+  dir: ~/.toolmeter
+
+servers:
+  - name: fs
+    command: npx
+    args: [-y, "@modelcontextprotocol/server-filesystem", "/tmp/agent-sandbox"]

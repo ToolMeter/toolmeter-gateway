@@ -1,6 +1,6 @@
 {
   "name": "@toolmeter/gateway",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Policy-enforcing MCP gateway: budgets, allow/ask/deny rules, and receipts for AI tool calls",
   "license": "MIT",
   "type": "module",
@@ -17,7 +17,8 @@
     "build": "tsc",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
-    "smoke": "tsx test/smoke.ts"
+    "smoke": "tsx test/smoke.ts",
+    "prepublishOnly": "tsc && vitest run && tsx test/smoke.ts"
   },
   "keywords": [
     "mcp",

@@ -1,10 +1,12 @@
 // End-to-end smoke test: spawn the gateway over stdio as a real MCP client,
 // exercise allow / deny / ask / budget paths, then verify receipts landed.
+import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 
 const root = resolve(import.meta.dirname, '..')
 const work = mkdtempSync(join(tmpdir(), 'toolmeter-smoke-'))
@@ -119,5 +121,79 @@ const blocked = receipts.filter((r) => r.status === 'blocked')
 check('two blocked receipts (deny rule + unapproved ask)', blocked.length === 2, `${blocked.length}`)
 
 await client.close()
+
+// Second session: a client that supports elicitation and auto-approves.
+// Also proves the receipt chain resumes across gateway restarts.
+const approver = new Client(
+  { name: 'smoke-approver', version: '0.0.0' },
+  { capabilities: { elicitation: {} } },
+)
+approver.setRequestHandler(ElicitRequestSchema, async (req) => {
+  const msg = req.params.message
+  return msg.includes('market_snapshot')
+    ? { action: 'accept' as const, content: { approve: true } }
+    : { action: 'decline' as const }
+})
+const approverTransport = new StdioClientTransport({
+  command: process.execPath,
+  args: [join(root, 'node_modules/tsx/dist/cli.mjs'), join(root, 'src/cli.ts'), '--config', configPath],
+})
+await approver.connect(approverTransport)
+
+const approved = await approver.callTool({ name: 'market_snapshot', arguments: { symbol: 'TM' } })
+check('ask with elicitation approval goes through', !approved.isError)
+
+const status2 = await approver.callTool({ name: 'toolmeter_status', arguments: {} })
+const statusJson2 = JSON.parse((status2.content as Array<{ text: string }>)[0].text)
+check(
+  'spend now includes the approved snapshot',
+  statusJson2.spent_this_month === 0.04,
+  `spent=${statusJson2.spent_this_month}`,
+)
+await approver.close()
+
+const receipts2 = readFileSync(join(work, '.toolmeter', 'receipts.jsonl'), 'utf8')
+  .trim()
+  .split('\n')
+  .map((l) => JSON.parse(l))
+const approvedReceipt = receipts2[receipts2.length - 1]
+check(
+  'approved call logged as ask_approved success',
+  approvedReceipt.decision === 'ask_approved' && approvedReceipt.status === 'success',
+)
+
+// CLI: verify must pass on the intact chain, then fail once tampered.
+const tsxBin = join(root, 'node_modules/tsx/dist/cli.mjs')
+const cliPath = join(root, 'src/cli.ts')
+const dir = join(work, '.toolmeter')
+const verifyOut = execFileSync(process.execPath, [tsxBin, cliPath, 'verify', '--dir', dir], {
+  encoding: 'utf8',
+})
+check('cli verify reports intact chain', verifyOut.includes('chain intact'), verifyOut.trim())
+
+const summaryOut = execFileSync(
+  process.execPath,
+  [tsxBin, cliPath, 'receipts', '--dir', dir],
+  { encoding: 'utf8' },
+)
+check(
+  'cli receipts summarizes spend by tool',
+  summaryOut.includes('spent:') && summaryOut.includes('demo:market_snapshot'),
+)
+
+const receiptFile = join(dir, 'receipts.jsonl')
+const lines = readFileSync(receiptFile, 'utf8').trim().split('\n')
+const tampered = JSON.parse(lines[1])
+tampered.est_cost = 0
+lines[1] = JSON.stringify(tampered)
+writeFileSync(receiptFile, lines.join('\n') + '\n')
+let tamperCaught = false
+try {
+  execFileSync(process.execPath, [tsxBin, cliPath, 'verify', '--dir', dir], { encoding: 'utf8' })
+} catch (err) {
+  tamperCaught = (err as { status?: number }).status === 2
+}
+check('cli verify exits 2 on tampered log', tamperCaught)
+
 console.log(failures === 0 ? '\nSmoke test passed.' : `\n${failures} smoke check(s) failed.`)
 process.exit(failures === 0 ? 0 : 1)
