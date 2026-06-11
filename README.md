@@ -177,6 +177,8 @@ pnpm smoke    # end-to-end: spawns the gateway and exercises every policy path
 pnpm build    # tsc to dist/
 ```
 
+Version history lives in [CHANGELOG.md](CHANGELOG.md).
+
 ## Status
 
 Early prototype, built to test a hypothesis: that teams running agents need spend governance and audit before they need payment rails. If that matches a problem you have, open an issue or write to hello@toolwarden.ai.
