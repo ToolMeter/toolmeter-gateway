@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 Nothing yet.
 
+## [0.7.0] - 2026-06-12
+
+Policy management goes central, with the same integrity story as receipts.
+
+### Added
+
+- `policy_source` config block: the gateway polls a central policy endpoint (ToolWarden Cloud) with ETag, verifies each version's Ed25519 signature against a pinned or first-use-fetched key, refuses version downgrades, and hot-applies verified updates. On any failure the current policy stays active.
+
 ## [0.6.0] - 2026-06-12
 
 The sink became infrastructure.
@@ -83,7 +91,8 @@ Initial release, as ToolMeter.
 - Approval flow via MCP elicitation, falling back to an explained deny for clients without elicitation support.
 - JSONL receipts with input/output payload hashes (payloads are never stored), success-only metering, and a `toolwarden_status` tool agents can call to check their own remaining budget.
 
-[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.3.0...v0.4.0

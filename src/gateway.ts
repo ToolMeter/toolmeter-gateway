@@ -80,6 +80,11 @@ export class GatewayCore {
     for (const s of next.servers) this.prices.set(s.name, s.prices)
   }
 
+  /** Swap only the policy (central policy_source updates). */
+  applyPolicy(policy: Policy): void {
+    this.policy = policy
+  }
+
   findPrincipal(token: string): Principal | undefined {
     return this.config.serve.principals.find((p) => p.token === token)
   }

@@ -13,7 +13,7 @@ const RuleSchema = z.object({
   max_calls_per_hour: z.number().int().positive().optional(),
 })
 
-const PolicySchema = z.object({
+export const PolicySchema = z.object({
   budget: z
     .object({
       monthly: z.number().nonnegative(),
@@ -55,6 +55,15 @@ const ServeSchema = z.object({
   principals: z.array(PrincipalSchema).default([]),
 })
 
+const PolicySourceSchema = z.object({
+  url: z.string().url(),
+  token: z.string().min(8),
+  poll_seconds: z.number().int().positive().default(60),
+  // Pin the cloud's countersigning public key (PEM). Strongly recommended;
+  // without it the key is fetched once at startup (trust on first use).
+  public_key: z.string().optional(),
+})
+
 const SinkSchema = z.object({
   url: z.string().url(),
   token: z.string().min(8),
@@ -72,6 +81,7 @@ export const ConfigSchema = z.object({
     .default({ dir: '~/.toolwarden' }),
   serve: ServeSchema.prefault({}),
   sink: SinkSchema.optional(),
+  policy_source: PolicySourceSchema.optional(),
   servers: z.array(ServerSchema).min(1),
 })
 
@@ -81,6 +91,7 @@ export type ServerConfig = z.infer<typeof ServerSchema>
 export type Rule = z.infer<typeof RuleSchema>
 export type Principal = z.infer<typeof PrincipalSchema>
 export type SinkConfig = z.infer<typeof SinkSchema>
+export type PolicySourceConfig = z.infer<typeof PolicySourceSchema>
 
 export function expandHome(p: string): string {
   if (p === '~') return homedir()
@@ -103,6 +114,9 @@ export function loadConfig(path: string): Config {
   }
   if (config.sink) {
     config.sink.token = expandEnv(config.sink.token)
+  }
+  if (config.policy_source) {
+    config.policy_source.token = expandEnv(config.policy_source.token)
   }
   // Relative paths resolve against the config file location, not the process
   // cwd, so the same config works from any directory.

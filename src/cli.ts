@@ -7,6 +7,7 @@ import { readReceipts, verifyChain, type Receipt } from './receipts.js'
 import { buildReport } from './report.js'
 import { runInit } from './init.js'
 import { serve } from './serve.js'
+import { PolicySource } from './policy-source.js'
 import { readFileSync, existsSync, writeFileSync, watch } from 'node:fs'
 
 function usage(): never {
@@ -60,6 +61,11 @@ async function runGateway() {
   const core = new GatewayCore(config)
   await core.connectUpstreams()
   watchPolicy(configPath, core)
+  if (config.policy_source) {
+    await new PolicySource(config.policy_source, (policy, version) =>
+      core.applyPolicy(policy),
+    ).start()
+  }
 
   const server = createSessionServer(core, LOCAL_PRINCIPAL)
   const transport = new StdioServerTransport()
@@ -87,6 +93,11 @@ async function runServe() {
   const core = new GatewayCore(config)
   await core.connectUpstreams()
   watchPolicy(configPath, core)
+  if (config.policy_source) {
+    await new PolicySource(config.policy_source, (policy, version) =>
+      core.applyPolicy(policy),
+    ).start()
+  }
 
   const stop = await serve(core, config)
   const shutdown = async () => {

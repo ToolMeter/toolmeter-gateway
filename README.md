@@ -107,6 +107,21 @@ Clients connect to `http://host:8484/mcp` with `Authorization: Bearer <token>`. 
 
 Policy edits hot-reload: change `toolwarden.yaml` and the running gateway applies the new rules to live sessions without a restart.
 
+## Central policy
+
+Manage policy from ToolWarden Cloud instead of (or alongside) the local file:
+
+```yaml
+policy_source:
+  url: https://cloud.example.com/v1/policy
+  token: ${TW_ORG_TOKEN}
+  poll_seconds: 60
+  # public_key: |          # pin the cloud's signing key (recommended)
+  #   -----BEGIN PUBLIC KEY-----...
+```
+
+Every published policy version is signed by the cloud's countersigning key. The gateway verifies the signature and refuses version downgrades, so neither a tampered transport nor a replayed old policy can change what gets enforced. On any failure the current policy stays active; unchanged policies cost one 304 per poll.
+
 ## Shipping receipts to a collector
 
 Add a `sink` block and every receipt is also delivered, in chain order, to a collector such as ToolWarden Cloud (or anything speaking the same wire schema):
