@@ -107,6 +107,19 @@ Clients connect to `http://host:8484/mcp` with `Authorization: Bearer <token>`. 
 
 Policy edits hot-reload: change `toolwarden.yaml` and the running gateway applies the new rules to live sessions without a restart.
 
+## Shipping receipts to a collector
+
+Add a `sink` block and every receipt is also delivered, in chain order, to a collector such as ToolWarden Cloud (or anything speaking the same wire schema):
+
+```yaml
+sink:
+  url: https://cloud.example.com/v1/ingest
+  token: ${TW_ORG_TOKEN}
+  gateway_id: prod-eu-1        # defaults to the hostname
+```
+
+Delivery is fire-and-forget: batched, retried with backoff, and never on the call path. If the collector is down, calls keep flowing and the local `receipts.jsonl` stays complete. Wire schema: `POST {url}` with `Authorization: Bearer {token}` and body `{"gateway": string, "receipts": Receipt[]}`.
+
 ## Governance works before payments exist
 
 Policy is useful on entirely free tools. `examples/govern-free-tools.yaml` wraps the official filesystem MCP server so reads pass, writes require approval, destructive operations are denied, and everything is logged. No prices involved.

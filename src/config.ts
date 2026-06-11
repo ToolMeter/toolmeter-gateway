@@ -55,6 +55,14 @@ const ServeSchema = z.object({
   principals: z.array(PrincipalSchema).default([]),
 })
 
+const SinkSchema = z.object({
+  url: z.string().url(),
+  token: z.string().min(8),
+  gateway_id: z.string().regex(/^[a-zA-Z0-9._-]+$/).optional(),
+  batch_size: z.number().int().positive().optional(),
+  flush_ms: z.number().int().positive().optional(),
+})
+
 export const ConfigSchema = z.object({
   policy: PolicySchema.prefault({}),
   storage: z
@@ -63,6 +71,7 @@ export const ConfigSchema = z.object({
     })
     .default({ dir: '~/.toolwarden' }),
   serve: ServeSchema.prefault({}),
+  sink: SinkSchema.optional(),
   servers: z.array(ServerSchema).min(1),
 })
 
@@ -71,6 +80,7 @@ export type Policy = z.infer<typeof PolicySchema>
 export type ServerConfig = z.infer<typeof ServerSchema>
 export type Rule = z.infer<typeof RuleSchema>
 export type Principal = z.infer<typeof PrincipalSchema>
+export type SinkConfig = z.infer<typeof SinkSchema>
 
 export function expandHome(p: string): string {
   if (p === '~') return homedir()
@@ -90,6 +100,9 @@ export function loadConfig(path: string): Config {
   const config = ConfigSchema.parse(parsed)
   for (const principal of config.serve.principals) {
     principal.token = expandEnv(principal.token)
+  }
+  if (config.sink) {
+    config.sink.token = expandEnv(config.sink.token)
   }
   // Relative paths resolve against the config file location, not the process
   // cwd, so the same config works from any directory.

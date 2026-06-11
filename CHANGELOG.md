@@ -8,6 +8,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 Nothing yet.
 
+## [0.5.0] - 2026-06-12
+
+The open half of fleet observability.
+
+### Added
+
+- `sink` config block: the gateway ships every receipt, in chain order, to a collector URL with a bearer token (`${ENV_VAR}` expansion supported). Delivery is batched, retried with backoff, and never blocks the tool-call path; if the collector is unreachable, calls keep flowing and the local `receipts.jsonl` stays complete. The wire schema is documented in the README so any collector can implement it.
+
 ## [0.4.0] - 2026-06-11
 
 Team mode: one shared gateway, many authenticated callers.
@@ -66,7 +74,8 @@ Initial release, as ToolMeter.
 - Approval flow via MCP elicitation, falling back to an explained deny for clients without elicitation support.
 - JSONL receipts with input/output payload hashes (payloads are never stored), success-only metering, and a `toolwarden_status` tool agents can call to check their own remaining budget.
 
-[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.1.0...v0.2.0

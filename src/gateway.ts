@@ -7,10 +7,12 @@ import {
   ListToolsRequestSchema,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
+import { hostname } from 'node:os'
 import type { Config, Policy, Principal, ServerConfig } from './config.js'
 import { estimateCost, evaluate } from './policy.js'
 import { SpendState } from './state.js'
-import { ReceiptLog, hashPayload, newReceiptId, type ReceiptBody } from './receipts.js'
+import { ReceiptLog, hashPayload, newReceiptId, type Receipt, type ReceiptBody } from './receipts.js'
+import { ReceiptSink } from './sink.js'
 
 type Upstream = {
   config: ServerConfig
@@ -38,12 +40,28 @@ export class GatewayCore {
   readonly receipts: ReceiptLog
   private policy: Policy
   private prices = new Map<string, ServerConfig['prices']>()
+  private sink: ReceiptSink | undefined
 
   constructor(private config: Config) {
     this.state = new SpendState(config.storage.dir)
     this.receipts = new ReceiptLog(config.storage.dir)
     this.policy = config.policy
     for (const s of config.servers) this.prices.set(s.name, s.prices)
+    if (config.sink) {
+      this.sink = new ReceiptSink({
+        url: config.sink.url,
+        token: config.sink.token,
+        gateway: config.sink.gateway_id ?? hostname(),
+        batchSize: config.sink.batch_size,
+        flushMs: config.sink.flush_ms,
+      })
+    }
+  }
+
+  private record(body: ReceiptBody): Receipt {
+    const receipt = this.receipts.append(body)
+    this.sink?.enqueue(receipt)
+    return receipt
   }
 
   get currency(): string {
@@ -148,7 +166,7 @@ export class GatewayCore {
 
     let decision: ReceiptBody['decision']
     if (verdict.decision === 'deny') {
-      this.receipts.append({
+      this.record({
         ...base,
         decision: 'deny',
         reason: verdict.reason,
@@ -167,7 +185,7 @@ export class GatewayCore {
       )
       decision = approved ? 'ask_approved' : 'ask_denied'
       if (!approved) {
-        this.receipts.append({
+        this.record({
           ...base,
           decision,
           reason: verdict.reason,
@@ -196,7 +214,7 @@ export class GatewayCore {
       // Meter only successful calls: a tool error is the provider's failure,
       // so the budget is not charged for it.
       this.state.settle(estCost, !result.isError && estCost > 0, key, principal.name)
-      this.receipts.append({
+      this.record({
         ...base,
         decision,
         reason: verdict.reason,
@@ -208,7 +226,7 @@ export class GatewayCore {
       return result
     } catch (err) {
       this.state.settle(estCost, false, key, principal.name)
-      this.receipts.append({
+      this.record({
         ...base,
         decision,
         reason: verdict.reason,
@@ -255,6 +273,7 @@ export class GatewayCore {
   }
 
   async close(): Promise<void> {
+    await this.sink?.close()
     await Promise.allSettled(this.upstreams.map((u) => u.client.close()))
   }
 }
