@@ -19,7 +19,15 @@ git clone https://github.com/toolwarden/toolwarden-gateway
 cd toolwarden-gateway && pnpm install
 ```
 
-Create `toolwarden.yaml`:
+Already have MCP servers configured? Wrap them all in one command:
+
+```bash
+toolwarden-gateway init        # reads .mcp.json or the Claude Desktop config
+```
+
+It generates a `toolwarden.yaml` around your existing servers with a starter policy and prints the client config to swap in.
+
+Or create `toolwarden.yaml` by hand:
 
 ```yaml
 policy:
@@ -35,6 +43,10 @@ policy:
       reason: training use forbidden in this workspace
     - match: "demo:echo"
       action: allow      # explicit allow is pre-approval, skips ask_above
+    - match: "search:*"
+      action: allow
+      monthly_budget: 2.00      # scoped budget for just these tools
+      max_calls_per_hour: 100   # stops looping agents, even on free tools
   default: allow
 
 storage:
@@ -121,6 +133,7 @@ Inspect and audit from the command line:
 ```bash
 toolwarden-gateway receipts             # month summary, totals by tool, recent calls
 toolwarden-gateway receipts --month 2026-05 --limit 20
+toolwarden-gateway report               # self-contained HTML audit report
 toolwarden-gateway verify               # walk the hash chain, exit 2 if tampered
 ```
 
@@ -129,8 +142,9 @@ toolwarden-gateway verify               # walk the hash chain, exit 2 if tampere
 1. The first rule whose `match` glob fits `server:tool` decides allow/ask/deny. `*` does not cross the `:` separator, so `demo:*` covers one server only.
 2. `max_per_call` and the monthly budget always apply, even to calls a rule allows.
 3. An explicit `allow` rule is pre-approval: it skips `ask_above`.
-4. Unmatched calls fall back to `default`, with `ask_above` escalating allow to ask.
-5. Concurrent calls reserve their estimated cost before executing, so parallel calls cannot jointly overdraw the budget. Reservations settle on success and release on failure.
+4. A matching rule's own `max_calls_per_hour` and `monthly_budget` apply next. Rate limits count execution attempts, so a looping agent is stopped even when its calls are free or failing.
+5. Unmatched calls fall back to `default`, with `ask_above` escalating allow to ask.
+6. Concurrent calls reserve their estimated cost before executing, so parallel calls cannot jointly overdraw the budget. Reservations settle on success and release on failure.
 
 ## Development
 

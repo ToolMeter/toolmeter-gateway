@@ -95,9 +95,13 @@ export class Gateway {
     const { upstream, tool } = route
     const key = `${upstream.config.name}:${tool.name}`
     const estCost = estimateCost(upstream.config, tool.name)
-    // committedThisMonth includes reservations held by concurrent in-flight
-    // calls, so parallel calls cannot jointly overdraw the budget.
-    const verdict = evaluate(this.config.policy, key, estCost, this.state.committedThisMonth())
+    // committed includes reservations held by concurrent in-flight calls,
+    // so parallel calls cannot jointly overdraw the budget.
+    const verdict = evaluate(this.config.policy, key, estCost, {
+      committed: this.state.committedThisMonth(),
+      spentMatching: (p) => this.state.spentThisMonthMatching(p),
+      callsLastHourMatching: (p) => this.state.callsLastHourMatching(p),
+    })
 
     const base = {
       receipt_id: newReceiptId(),
@@ -149,12 +153,15 @@ export class Gateway {
 
     const started = Date.now()
     this.state.reserve(estCost)
+    // Rate limits count execution attempts, so a looping agent is stopped
+    // even when its calls are free or failing.
+    this.state.recordCall(key)
     try {
       const result = await upstream.client.callTool({ name: tool.name, arguments: args })
       const latency = Date.now() - started
       // Meter only successful calls: a tool error is the provider's failure,
       // so the budget is not charged for it.
-      this.state.settle(estCost, !result.isError && estCost > 0)
+      this.state.settle(estCost, !result.isError && estCost > 0, key)
       this.receipts.append({
         ...base,
         decision,
@@ -166,7 +173,7 @@ export class Gateway {
       })
       return result
     } catch (err) {
-      this.state.settle(estCost, false)
+      this.state.settle(estCost, false, key)
       this.receipts.append({
         ...base,
         decision,

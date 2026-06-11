@@ -4,13 +4,19 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { expandHome, loadConfig } from './config.js'
 import { Gateway } from './gateway.js'
 import { readReceipts, verifyChain, type Receipt } from './receipts.js'
-import { readFileSync, existsSync } from 'node:fs'
+import { buildReport } from './report.js'
+import { runInit } from './init.js'
+import { readFileSync, existsSync, writeFileSync } from 'node:fs'
 
 function usage(): never {
   console.error(`Usage:
   toolwarden-gateway --config <toolwarden.yaml>          run the gateway (default command)
+  toolwarden-gateway init [--from <mcp.json>] [--out <toolwarden.yaml>]
+                                                       wrap an existing MCP config
   toolwarden-gateway receipts [--dir <dir>] [--month YYYY-MM] [--limit N]
                                                        spend summary and recent receipts
+  toolwarden-gateway report [--dir <dir>] [--month YYYY-MM] [--out <report.html>]
+                                                       self-contained HTML audit report
   toolwarden-gateway verify [--dir <dir>]               verify receipt chain integrity`)
   process.exit(1)
 }
@@ -118,11 +124,24 @@ function runVerify() {
   }
 }
 
+function runReport() {
+  const file = receiptsFile()
+  const month = flag('month', new Date().toISOString().slice(0, 7))!
+  const out = flag('out', 'toolwarden-report.html')!
+  const html = buildReport(file, month)
+  writeFileSync(out, html)
+  console.log(`Wrote ${out} for ${month}`)
+}
+
 const command = process.argv[2]
 if (command === 'receipts') {
   runReceipts()
 } else if (command === 'verify') {
   runVerify()
+} else if (command === 'report') {
+  runReport()
+} else if (command === 'init') {
+  runInit(flag('from'), flag('out', 'toolwarden.yaml')!)
 } else if (command === 'run' || command?.startsWith('--')) {
   runGateway().catch((err) => {
     console.error('toolwarden-gateway failed to start:', err)

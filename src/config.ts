@@ -8,6 +8,9 @@ const RuleSchema = z.object({
   match: z.string(),
   action: z.enum(['allow', 'deny', 'ask']),
   reason: z.string().optional(),
+  // Scoped to the calls this rule matches, on top of the global budget.
+  monthly_budget: z.number().nonnegative().optional(),
+  max_calls_per_hour: z.number().int().positive().optional(),
 })
 
 const PolicySchema = z.object({
