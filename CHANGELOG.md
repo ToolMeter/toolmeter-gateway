@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 Nothing yet.
 
+## [0.6.0] - 2026-06-12
+
+The sink became infrastructure.
+
+### Added
+
+- Sink resync: when the collector answers 409 (its stored head does not match, e.g. after a dropped batch or a collector restore), the sink locates the collector's head in the local `receipts.jsonl`, rebuilds its queue from everything after it, and redelivers. The local file is the source of truth.
+- Sink self-disable on unrecoverable divergence (collector head unknown locally, or a second conflict immediately after a resync), with a loud stderr explanation. Tool calls are never affected; the local receipts file stays complete.
+
 ## [0.5.0] - 2026-06-12
 
 The open half of fleet observability.
@@ -74,7 +83,8 @@ Initial release, as ToolMeter.
 - Approval flow via MCP elicitation, falling back to an explained deny for clients without elicitation support.
 - JSONL receipts with input/output payload hashes (payloads are never stored), success-only metering, and a `toolwarden_status` tool agents can call to check their own remaining budget.
 
-[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.2.0...v0.3.0

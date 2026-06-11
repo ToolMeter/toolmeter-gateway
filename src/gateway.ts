@@ -54,6 +54,7 @@ export class GatewayCore {
         gateway: config.sink.gateway_id ?? hostname(),
         batchSize: config.sink.batch_size,
         flushMs: config.sink.flush_ms,
+        receiptsFile: this.receipts.file,
       })
     }
   }
