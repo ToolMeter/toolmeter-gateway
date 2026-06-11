@@ -1,0 +1,27 @@
+policy:
+  budget:
+    monthly: 5.00
+    currency: USD
+  limits:
+    max_per_call: 0.05
+    ask_above: 0.02
+  rules:
+    - match: "demo:dataset_export"
+      action: deny
+      reason: dataset export is licensed for training use, which this workspace forbids
+    - match: "demo:echo"
+      action: allow
+  default: allow
+
+storage:
+  dir: ./.toolmeter
+
+servers:
+  - name: demo
+    command: npx
+    args: [tsx, ./demo-server.ts]
+    prices:
+      render_screenshot: 0.01
+      market_snapshot: 0.03
+      dataset_export: 0.04
+      "*": 0.0

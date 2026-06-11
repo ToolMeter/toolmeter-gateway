@@ -1,0 +1,119 @@
+# ToolMeter Gateway
+
+A policy-enforcing MCP gateway. Put it between any MCP client and your MCP servers, write a `policy.yaml`, and every tool call gets checked against budgets, per-call ceilings, and allow/ask/deny rules. Every decision produces a receipt.
+
+Payments for AI tools are getting solved by open protocols (x402, Stripe MPP, AP2). What those protocols don't answer: should this agent be allowed to make this call, under whose budget, and how do you audit what happened? That's what this gateway does.
+
+```text
+MCP client (Claude Code, Claude Desktop, any MCP host)
+        |
+  toolmeter-gateway     <- policy.yaml: budgets, limits, rules
+        |                  receipts.jsonl: one line per decision
+  your MCP servers      <- unchanged
+```
+
+## Quick start
+
+```bash
+git clone https://github.com/toolmeter/toolmeter-gateway
+cd toolmeter-gateway && pnpm install
+```
+
+Create `toolmeter.yaml`:
+
+```yaml
+policy:
+  budget:
+    monthly: 5.00        # USD; 0 disables budget enforcement
+    currency: USD
+  limits:
+    max_per_call: 0.05   # hard ceiling, denies anything above
+    ask_above: 0.02      # calls at or above this require approval
+  rules:                 # first match wins, matched against server:tool
+    - match: "demo:dataset_export"
+      action: deny
+      reason: training use forbidden in this workspace
+    - match: "demo:echo"
+      action: allow      # explicit allow is pre-approval, skips ask_above
+  default: allow
+
+storage:
+  dir: ~/.toolmeter      # receipts.jsonl and state.json live here
+
+servers:
+  - name: demo
+    command: npx
+    args: [tsx, ./examples/demo-server.ts]
+    prices:              # cost estimates per tool call, USD
+      render_screenshot: 0.01
+      market_snapshot: 0.03
+      "*": 0.0
+```
+
+Add the gateway to your MCP client. For Claude Code:
+
+```json
+{
+  "mcpServers": {
+    "toolmeter": {
+      "command": "npx",
+      "args": ["tsx", "src/cli.ts", "--config", "toolmeter.yaml"]
+    }
+  }
+}
+```
+
+The agent now sees your servers' tools (with price annotations in the descriptions), plus a built-in `toolmeter_status` tool it can call to check its own remaining budget.
+
+## What the agent experiences
+
+- A call under the limits goes straight through.
+- A call matching a deny rule comes back as an error with the policy reason and a receipt id.
+- A call at or above `ask_above` triggers an approval prompt in clients that support MCP elicitation. Clients without elicitation get a clean deny that explains why.
+- A failed upstream call is never charged against the budget.
+
+## Receipts
+
+Every decision appends one line to `receipts.jsonl`:
+
+```json
+{
+  "receipt_id": "rcpt_3f9a1c2b4d5e",
+  "ts": "2026-06-11T14:02:11.000Z",
+  "server": "demo",
+  "tool": "render_screenshot",
+  "decision": "allow",
+  "reason": "default policy: allow",
+  "est_cost": 0.01,
+  "currency": "USD",
+  "status": "success",
+  "latency_ms": 412,
+  "input_hash": "sha256:a1b2c3d4e5f60708",
+  "output_hash": "sha256:0807f6e5d4c3b2a1",
+  "spent_month_after": 0.21,
+  "budget_monthly": 5
+}
+```
+
+Input and output are hashed, not stored: the receipt proves what was called without retaining payloads.
+
+## Policy semantics
+
+1. The first rule whose `match` glob fits `server:tool` decides allow/ask/deny. `*` does not cross the `:` separator, so `demo:*` covers one server only.
+2. `max_per_call` and the monthly budget always apply, even to calls a rule allows.
+3. An explicit `allow` rule is pre-approval: it skips `ask_above`.
+4. Unmatched calls fall back to `default`, with `ask_above` escalating allow to ask.
+
+## Development
+
+```bash
+pnpm test     # policy engine unit tests
+pnpm smoke    # end-to-end: spawns the gateway and exercises every policy path
+pnpm build    # tsc to dist/
+```
+
+## Status
+
+Early prototype, built to test a hypothesis: that teams running agents need spend governance and audit before they need payment rails. If that matches a problem you have, open an issue or write to hello@toolmeter.ai.
+
+MIT license.

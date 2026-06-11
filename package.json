@@ -1,0 +1,49 @@
+{
+  "name": "@toolmeter/gateway",
+  "version": "0.1.0",
+  "description": "Policy-enforcing MCP gateway: budgets, allow/ask/deny rules, and receipts for AI tool calls",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "toolmeter-gateway": "dist/cli.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "smoke": "tsx test/smoke.ts"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "policy",
+    "budgets",
+    "metering",
+    "receipts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toolmeter/toolmeter-gateway"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
