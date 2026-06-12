@@ -7,6 +7,7 @@ import { readReceipts, verifyChain, type Receipt } from './receipts.js'
 import { buildReport } from './report.js'
 import { runInit } from './init.js'
 import { serve } from './serve.js'
+import { runDoctor } from './doctor.js'
 import { PolicySource } from './policy-source.js'
 import { readFileSync, existsSync, writeFileSync, watch } from 'node:fs'
 
@@ -20,7 +21,8 @@ function usage(): never {
                                                        spend summary and recent receipts
   toolwarden-gateway report [--dir <dir>] [--month YYYY-MM] [--out <report.html>]
                                                        self-contained HTML audit report
-  toolwarden-gateway verify [--dir <dir>]               verify receipt chain integrity`)
+  toolwarden-gateway verify [--dir <dir>]               verify receipt chain integrity
+  toolwarden-gateway doctor --config <toolwarden.yaml>  diagnose config, upstreams, and cloud`)
   process.exit(1)
 }
 
@@ -207,6 +209,13 @@ if (command === 'receipts') {
   runReport()
 } else if (command === 'init') {
   runInit(flag('from'), flag('out', 'toolwarden.yaml')!)
+} else if (command === 'doctor') {
+  const cfg = flag('config')
+  if (!cfg) usage()
+  runDoctor(cfg!).catch((err) => {
+    console.error('doctor crashed:', err)
+    process.exit(1)
+  })
 } else if (command === 'serve') {
   runServe().catch((err) => {
     console.error('toolwarden-gateway serve failed to start:', err)

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ToolWarden audit pack verifier</title>
+<style>
+  body { background:#0a0a0c; color:#e4e4e7; font:14px/1.6 -apple-system, "Segoe UI", sans-serif; margin:0; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 48px 32px; }
+  h1 { font-size:20px; letter-spacing:-0.02em; } .dim { color:#71717a; }
+  input[type=file] { margin: 18px 0; color:#a1a1aa; }
+  .row { padding:10px 14px; border:1px solid #1c1c1f; border-radius:8px; margin:8px 0; font-family:ui-monospace, Menlo, monospace; font-size:12.5px; }
+  .ok { border-color:#34d39944; color:#34d399; }
+  .bad { border-color:#f8717155; color:#f87171; }
+  .warn { border-color:#fbbf2444; color:#fbbf24; }
+  .neutral { color:#a1a1aa; }
+  code { background:#101013; padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body><div class="wrap">
+  <h1>ToolWarden <span class="dim">audit pack verifier</span></h1>
+  <p class="dim">
+    Runs entirely in this page: no uploads, no network. Load an audit pack
+    JSON and every receipt hash, chain link, and Ed25519 countersignature
+    is recomputed locally. Works offline; save this file and keep it with
+    your audit records.
+  </p>
+  <input type="file" id="file" accept="application/json">
+  <div id="out"></div>
+
+<script>
+const out = document.getElementById('out')
+function row(cls, text) {
+  const div = document.createElement('div')
+  div.className = 'row ' + cls
+  div.textContent = text
+  out.appendChild(div)
+}
+
+async function sha256HexOf(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+function pemToBytes(pem) {
+  const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '')
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
+
+function b64ToBytes(b64) {
+  const bin = atob(b64)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return bytes
+}
+
+async function verifyPack(pack) {
+  out.innerHTML = ''
+  if (!pack.format || !String(pack.format).startsWith('toolwarden-audit-pack/')) {
+    row('bad', 'Not a ToolWarden audit pack.')
+    return
+  }
+  if (pack.format === 'toolwarden-audit-pack/1') {
+    row('warn', 'This is a v1 pack without raw receipts; only countersignatures can be verified. Re-export for full verification.')
+  }
+  row('neutral', 'org: ' + pack.org + ' · month: ' + pack.month + ' · generated: ' + pack.generated_at)
+
+  // 1. Receipt hashes and per-gateway chain contiguity.
+  const byGateway = new Map()
+  for (const entry of pack.receipts ?? []) {
+    const gw = entry.gateway
+    if (!entry.receipt) continue
+    if (!byGateway.has(gw)) byGateway.set(gw, [])
+    byGateway.get(gw).push(entry.receipt)
+  }
+  let allHashesOk = true
+  for (const [gw, receipts] of byGateway) {
+    let hashFails = 0
+    let linkBreaks = 0
+    for (let i = 0; i < receipts.length; i++) {
+      const r = receipts[i]
+      const clone = { ...r }
+      delete clone.hash
+      const expected = 'sha256:' + (await sha256HexOf(JSON.stringify(clone)))
+      if (expected !== r.hash) hashFails++
+      if (i > 0 && r.prev !== receipts[i - 1].hash) linkBreaks++
+    }
+    if (hashFails || linkBreaks) allHashesOk = false
+    row(
+      hashFails || linkBreaks ? 'bad' : 'ok',
+      gw + ': ' + receipts.length + ' receipts · ' +
+        (hashFails ? hashFails + ' HASH MISMATCH(ES) ' : 'all hashes recompute · ') +
+        (linkBreaks ? linkBreaks + ' BROKEN CHAIN LINK(S)' : 'chain links contiguous'),
+    )
+  }
+
+  // 2. Countersignatures on gateway heads.
+  let key
+  try {
+    key = await crypto.subtle.importKey('spki', pemToBytes(pack.public_key), 'Ed25519', false, ['verify'])
+  } catch (err) {
+    row('bad', 'Could not import the public key: ' + err)
+    return
+  }
+  for (const g of pack.gateways ?? []) {
+    if (!g.countersignature) {
+      row('warn', g.name + ': no countersignature recorded')
+      continue
+    }
+    const payload = 'toolwarden-countersign|' + pack.org + '|' + g.name + '|' + g.chain_head + '|' + g.countersigned_at
+    const valid = await crypto.subtle.verify('Ed25519', key, b64ToBytes(g.countersignature), new TextEncoder().encode(payload))
+    const receipts = byGateway.get(g.name) ?? []
+    const sliceTail = receipts.length ? receipts[receipts.length - 1].hash : null
+    const headNote = sliceTail === g.chain_head
+      ? 'head matches the last receipt in this pack'
+      : 'head is newer than this pack\u2019s slice (receipts continue beyond it)'
+    row(valid ? 'ok' : 'bad', g.name + ': countersignature ' + (valid ? 'VALID' : 'INVALID') + ' · ' + headNote)
+  }
+
+  row(allHashesOk ? 'ok' : 'bad', allHashesOk
+    ? 'Verdict: every receipt in this pack is exactly what the gateway recorded, and the cloud attested to the chain heads.'
+    : 'Verdict: TAMPERING OR CORRUPTION DETECTED. Do not trust this pack.')
+}
+
+document.getElementById('file').addEventListener('change', async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  try {
+    verifyPack(JSON.parse(await file.text()))
+  } catch (err) {
+    out.innerHTML = ''
+    row('bad', 'Could not parse the file: ' + err)
+  }
+})
+</script>
+</div></body></html>
