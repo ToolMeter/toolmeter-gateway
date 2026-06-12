@@ -62,10 +62,13 @@ async function runGateway() {
   await core.connectUpstreams()
   watchPolicy(configPath, core)
   if (config.policy_source) {
-    await new PolicySource(config.policy_source, (policy, version) =>
-      core.applyPolicy(policy),
+    await new PolicySource(
+      config.policy_source,
+      (policy) => core.applyPolicy(policy),
+      core.gatewayName,
     ).start()
   }
+  core.startFleetSpend()
 
   const server = createSessionServer(core, LOCAL_PRINCIPAL)
   const transport = new StdioServerTransport()
@@ -94,10 +97,13 @@ async function runServe() {
   await core.connectUpstreams()
   watchPolicy(configPath, core)
   if (config.policy_source) {
-    await new PolicySource(config.policy_source, (policy, version) =>
-      core.applyPolicy(policy),
+    await new PolicySource(
+      config.policy_source,
+      (policy) => core.applyPolicy(policy),
+      core.gatewayName,
     ).start()
   }
+  core.startFleetSpend()
 
   const stop = await serve(core, config)
   const shutdown = async () => {

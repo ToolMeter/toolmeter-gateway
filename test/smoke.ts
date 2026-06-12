@@ -195,5 +195,19 @@ try {
 }
 check('cli verify exits 2 on tampered log', tamperCaught)
 
+// Resilience: crash the upstream, then verify the gateway reconnects and
+// the next call succeeds without restarting the gateway.
+const crashClient = new Client({ name: 'smoke-crash', version: '0.0.0' })
+const crashTransport = new StdioClientTransport({
+  command: process.execPath,
+  args: [join(root, 'node_modules/tsx/dist/cli.mjs'), join(root, 'src/cli.ts'), '--config', configPath],
+})
+await crashClient.connect(crashTransport)
+await crashClient.callTool({ name: 'crash_server', arguments: {} }).catch(() => null)
+await new Promise((r) => setTimeout(r, 3500)) // allow reconnect backoff
+const afterCrash = await crashClient.callTool({ name: 'echo', arguments: { message: 'back' } })
+check('gateway recovers after upstream crash', !afterCrash.isError)
+await crashClient.close()
+
 console.log(failures === 0 ? '\nSmoke test passed.' : `\n${failures} smoke check(s) failed.`)
 process.exit(failures === 0 ? 0 : 1)

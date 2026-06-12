@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ToolListChangedNotificationSchema,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
 import { hostname } from 'node:os'
@@ -19,6 +20,8 @@ type Upstream = {
   config: ServerConfig
   client: Client
   tools: Tool[]
+  reconnecting: boolean
+  attempts: number
 }
 
 type RouteEntry = { upstream: Upstream; tool: Tool }
@@ -44,6 +47,8 @@ export class GatewayCore {
   private sink: ReceiptSink | undefined
   private approver: CloudApprover | undefined
   private gatewayId: string
+  /** Spend by other gateways in the org this month, from the cloud. */
+  private remoteSpent = 0
 
   constructor(private config: Config) {
     this.state = new SpendState(config.storage.dir)
@@ -92,23 +97,110 @@ export class GatewayCore {
     this.policy = policy
   }
 
+  get gatewayName(): string {
+    return this.gatewayId
+  }
+
+  /**
+   * Fleet budgets: fold in the org's spend from other gateways, reported
+   * by the cloud. Eventually consistent by design; local reservations stay
+   * authoritative for burst protection on this gateway.
+   */
+  startFleetSpend(): void {
+    if (!this.config.sink) return
+    const base = new URL(this.config.sink.url)
+    const poll = async () => {
+      try {
+        const url = new URL('/v1/spend', base)
+        url.searchParams.set('exclude_gateway', this.gatewayId)
+        const res = await fetch(url, {
+          headers: { authorization: `Bearer ${this.config.sink!.token}` },
+          signal: AbortSignal.timeout(10_000),
+        })
+        if (res.ok) {
+          this.remoteSpent = Number(((await res.json()) as { spent: number }).spent) || 0
+        }
+      } catch {
+        // keep the last known value; local enforcement continues regardless
+      }
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), 60_000)
+    timer.unref?.()
+  }
+
   findPrincipal(token: string): Principal | undefined {
     return this.config.serve.principals.find((p) => p.token === token)
   }
 
+  private async dial(sc: ServerConfig): Promise<{ client: Client; tools: Tool[] }> {
+    const client = new Client({ name: 'toolwarden-gateway', version: '0.9.0' })
+    const transport = sc.url
+      ? new StreamableHTTPClientTransport(new URL(sc.url))
+      : new StdioClientTransport({
+          command: sc.command!,
+          args: sc.args,
+          env: { ...process.env, ...sc.env } as Record<string, string>,
+        })
+    await client.connect(transport)
+    const { tools } = await client.listTools()
+    return { client, tools }
+  }
+
+  private watchUpstream(up: Upstream): void {
+    // Refresh routes when the server announces a changed tool list.
+    up.client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+      try {
+        const { tools } = await up.client.listTools()
+        up.tools = tools
+        this.buildRoutes()
+        console.error(`toolwarden-gateway: refreshed tools from "${up.config.name}" (list changed)`)
+      } catch {
+        // the close handler takes over if the connection is gone
+      }
+    })
+    // Reconnect with backoff when the server dies (crash, redeploy).
+    up.client.onclose = () => void this.reconnect(up)
+  }
+
+  private async reconnect(up: Upstream): Promise<void> {
+    if (up.reconnecting) return
+    up.reconnecting = true
+    while (up.attempts < 8) {
+      const delay = Math.min(30_000, 1000 * 2 ** up.attempts)
+      up.attempts++
+      await new Promise((r) => setTimeout(r, delay))
+      try {
+        const { client, tools } = await this.dial(up.config)
+        up.client = client
+        up.tools = tools
+        up.attempts = 0
+        up.reconnecting = false
+        this.watchUpstream(up)
+        this.buildRoutes()
+        console.error(`toolwarden-gateway: reconnected to "${up.config.name}"`)
+        return
+      } catch (err) {
+        console.error(
+          `toolwarden-gateway: reconnect to "${up.config.name}" failed (attempt ${up.attempts}): ${
+            err instanceof Error ? err.message : err
+          }`,
+        )
+      }
+    }
+    up.reconnecting = false
+    console.error(
+      `toolwarden-gateway: giving up on "${up.config.name}" after ${up.attempts} attempts. ` +
+        `Its tools return errors until the gateway restarts.`,
+    )
+  }
+
   async connectUpstreams(): Promise<void> {
     for (const sc of this.config.servers) {
-      const client = new Client({ name: 'toolwarden-gateway', version: '0.4.0' })
-      const transport = sc.url
-        ? new StreamableHTTPClientTransport(new URL(sc.url))
-        : new StdioClientTransport({
-            command: sc.command!,
-            args: sc.args,
-            env: { ...process.env, ...sc.env } as Record<string, string>,
-          })
-      await client.connect(transport)
-      const { tools } = await client.listTools()
-      this.upstreams.push({ config: sc, client, tools })
+      const { client, tools } = await this.dial(sc)
+      const up: Upstream = { config: sc, client, tools, reconnecting: false, attempts: 0 }
+      this.watchUpstream(up)
+      this.upstreams.push(up)
     }
     this.buildRoutes()
   }
@@ -155,7 +247,7 @@ export class GatewayCore {
     // committed includes reservations held by concurrent in-flight calls,
     // so parallel calls cannot jointly overdraw the budget.
     const verdict = evaluate(this.policy, key, estCost, {
-      committed: this.state.committedThisMonth(),
+      committed: this.state.committedThisMonth() + this.remoteSpent,
       spentMatching: (p) => this.state.spentThisMonthMatching(p),
       callsLastHourMatching: (p) => this.state.callsLastHourMatching(p),
       principal: {
@@ -234,7 +326,18 @@ export class GatewayCore {
     // even when its calls are free or failing.
     this.state.recordCall(key)
     try {
-      const result = await upstream.client.callTool({ name: tool.name, arguments: args })
+      let result
+      try {
+        result = await upstream.client.callTool({ name: tool.name, arguments: args })
+      } catch (err) {
+        // One retry after a quick reconnect covers the upstream-just-died
+        // case without masking real tool errors (which arrive as isError
+        // results, not transport exceptions).
+        if (!upstream.reconnecting) void this.reconnect(upstream)
+        await new Promise((r) => setTimeout(r, 1500))
+        if (upstream.reconnecting) throw err
+        result = await upstream.client.callTool({ name: tool.name, arguments: args })
+      }
       const latency = Date.now() - started
       // Meter only successful calls: a tool error is the provider's failure,
       // so the budget is not charged for it.

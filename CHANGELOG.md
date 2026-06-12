@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 Nothing yet.
 
+## [0.9.0] - 2026-06-12
+
+Fleet-grade.
+
+### Added
+
+- Upstream resilience: crashed or redeployed MCP servers reconnect with backoff, tool lists refresh on listChanged notifications, and a call that hits a just-died upstream retries once after reconnection.
+- Approval grants: when the cloud approves with "for 1h / for 24h", matching calls skip the wait entirely (the create response carries the instant decision).
+- Per-gateway policies: the policy poller sends its gateway id, so prod, dev, and CI gateways can receive different centrally-managed policies.
+- Fleet budgets: with a sink configured, the gateway folds the org's spend from other gateways (reported by the cloud, refreshed every minute) into budget checks, so five gateways stop believing they each own the whole monthly budget.
+- Dockerfile and a ghcr.io publish workflow for serve mode.
+
 ## [0.8.0] - 2026-06-12
 
 Approvals reach humans wherever they are.
@@ -99,7 +111,8 @@ Initial release, as ToolMeter.
 - Approval flow via MCP elicitation, falling back to an explained deny for clients without elicitation support.
 - JSONL receipts with input/output payload hashes (payloads are never stored), success-only metering, and a `toolwarden_status` tool agents can call to check their own remaining budget.
 
-[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ToolWarden/toolwarden-gateway/compare/v0.5.0...v0.6.0

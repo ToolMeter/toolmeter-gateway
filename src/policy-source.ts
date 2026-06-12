@@ -39,6 +39,7 @@ export class PolicySource {
   constructor(
     private config: PolicySourceConfig,
     private onPolicy: (policy: Policy, version: number) => void,
+    private gatewayId?: string,
   ) {
     this.publicKeyPem = config.public_key
   }
@@ -82,7 +83,9 @@ export class PolicySource {
         authorization: `Bearer ${this.config.token}`,
       }
       if (this.etag) headers['if-none-match'] = this.etag
-      const res = await fetch(this.config.url, { headers, signal: AbortSignal.timeout(10_000) })
+      const url = new URL(this.config.url)
+      if (this.gatewayId) url.searchParams.set('gateway', this.gatewayId)
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) })
       if (res.status === 304) return
       if (res.status === 404) return // nothing published yet
       if (!res.ok) throw new Error(`policy fetch: ${res.status}`)

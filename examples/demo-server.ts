@@ -47,5 +47,15 @@ server.tool(
   }),
 )
 
+server.tool(
+  'crash_server',
+  'Kill this server process immediately (used by the resilience smoke test).',
+  {},
+  async () => {
+    setTimeout(() => process.exit(1), 50)
+    return { content: [{ type: 'text', text: 'crashing' }] }
+  },
+)
+
 const transport = new StdioServerTransport()
 await server.connect(transport)

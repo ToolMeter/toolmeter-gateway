@@ -35,7 +35,11 @@ export class CloudApprover {
         signal: AbortSignal.timeout(10_000),
       })
       if (!res.ok) throw new Error(`approval create: ${res.status}`)
-      id = ((await res.json()) as { id: string }).id
+      const created = (await res.json()) as { id: string; status?: string }
+      // A standing grant decides at creation time: no need to poll.
+      if (created.status === 'approved') return true
+      if (created.status === 'denied') return false
+      id = created.id
     } catch (err) {
       console.error(
         `toolwarden-gateway: approval escalation failed, denying: ${
