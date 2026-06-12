@@ -122,6 +122,19 @@ policy_source:
 
 Every published policy version is signed by the cloud's countersigning key. The gateway verifies the signature and refuses version downgrades, so neither a tampered transport nor a replayed old policy can change what gets enforced. On any failure the current policy stays active; unchanged policies cost one 304 per poll.
 
+## Cloud approvals
+
+Route "ask" verdicts to humans who are not sitting in the MCP client:
+
+```yaml
+approvals:
+  url: https://cloud.example.com/v1/approvals
+  token: ${TW_ORG_TOKEN}
+  timeout_seconds: 120
+```
+
+The gateway holds the call while the approval shows up in the ToolWarden Cloud inbox (and Slack, when the org has a webhook configured) with signed one-time approve/deny links. Approved calls proceed; denied, expired, or timed-out calls are refused. When `approvals` is configured it takes precedence over in-client elicitation, since the decision and its audit trail belong to the org.
+
 ## Shipping receipts to a collector
 
 Add a `sink` block and every receipt is also delivered, in chain order, to a collector such as ToolWarden Cloud (or anything speaking the same wire schema):

@@ -13,6 +13,7 @@ import { estimateCost, evaluate } from './policy.js'
 import { SpendState } from './state.js'
 import { ReceiptLog, hashPayload, newReceiptId, type Receipt, type ReceiptBody } from './receipts.js'
 import { ReceiptSink } from './sink.js'
+import { CloudApprover } from './approvals.js'
 
 type Upstream = {
   config: ServerConfig
@@ -41,12 +42,18 @@ export class GatewayCore {
   private policy: Policy
   private prices = new Map<string, ServerConfig['prices']>()
   private sink: ReceiptSink | undefined
+  private approver: CloudApprover | undefined
+  private gatewayId: string
 
   constructor(private config: Config) {
     this.state = new SpendState(config.storage.dir)
     this.receipts = new ReceiptLog(config.storage.dir)
     this.policy = config.policy
     for (const s of config.servers) this.prices.set(s.name, s.prices)
+    this.gatewayId = config.sink?.gateway_id ?? hostname()
+    if (config.approvals) {
+      this.approver = new CloudApprover(config.approvals)
+    }
     if (config.sink) {
       this.sink = new ReceiptSink({
         url: config.sink.url,
@@ -186,9 +193,21 @@ export class GatewayCore {
           `Receipt ${base.receipt_id} logged. Adjust policy.yaml to change this.`,
       )
     } else if (verdict.decision === 'ask') {
-      const approved = await askApproval(
-        `Approve paid tool call ${key} (estimated $${estCost} ${this.currency})? Policy: ${verdict.reason}`,
-      )
+      // Cloud approvals take precedence when configured: the decision and
+      // its audit trail belong to the org, and it works for headless
+      // agents. Otherwise fall back to in-client elicitation.
+      const approved = this.approver
+        ? await this.approver.requestApproval({
+            gateway: this.gatewayId,
+            principal: principal.name,
+            tool: key,
+            est_cost: estCost,
+            currency: this.currency,
+            reason: verdict.reason,
+          })
+        : await askApproval(
+            `Approve paid tool call ${key} (estimated $${estCost} ${this.currency})? Policy: ${verdict.reason}`,
+          )
       decision = approved ? 'ask_approved' : 'ask_denied'
       if (!approved) {
         this.record({

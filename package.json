@@ -1,6 +1,6 @@
 {
   "name": "@toolwarden/gateway",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Policy-enforcing MCP gateway: budgets, allow/ask/deny rules, and receipts for AI tool calls",
   "license": "MIT",
   "type": "module",

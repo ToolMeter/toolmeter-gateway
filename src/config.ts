@@ -64,6 +64,13 @@ const PolicySourceSchema = z.object({
   public_key: z.string().optional(),
 })
 
+const ApprovalsSchema = z.object({
+  url: z.string().url(),
+  token: z.string().min(8),
+  timeout_seconds: z.number().int().positive().default(120),
+  poll_ms: z.number().int().positive().default(1500),
+})
+
 const SinkSchema = z.object({
   url: z.string().url(),
   token: z.string().min(8),
@@ -82,6 +89,7 @@ export const ConfigSchema = z.object({
   serve: ServeSchema.prefault({}),
   sink: SinkSchema.optional(),
   policy_source: PolicySourceSchema.optional(),
+  approvals: ApprovalsSchema.optional(),
   servers: z.array(ServerSchema).min(1),
 })
 
@@ -92,6 +100,7 @@ export type Rule = z.infer<typeof RuleSchema>
 export type Principal = z.infer<typeof PrincipalSchema>
 export type SinkConfig = z.infer<typeof SinkSchema>
 export type PolicySourceConfig = z.infer<typeof PolicySourceSchema>
+export type ApprovalsConfig = z.infer<typeof ApprovalsSchema>
 
 export function expandHome(p: string): string {
   if (p === '~') return homedir()
@@ -117,6 +126,9 @@ export function loadConfig(path: string): Config {
   }
   if (config.policy_source) {
     config.policy_source.token = expandEnv(config.policy_source.token)
+  }
+  if (config.approvals) {
+    config.approvals.token = expandEnv(config.approvals.token)
   }
   // Relative paths resolve against the config file location, not the process
   // cwd, so the same config works from any directory.
