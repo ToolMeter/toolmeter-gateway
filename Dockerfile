@@ -1,6 +1,6 @@
 FROM node:24-slim
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
-RUN corepack enable
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 WORKDIR /app
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 RUN pnpm install --no-frozen-lockfile
