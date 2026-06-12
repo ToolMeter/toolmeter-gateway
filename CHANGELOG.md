@@ -8,6 +8,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 Nothing yet.
 
+## [0.11.0] - 2026-06-12
+
+Documentation, explicit history sync, and a path for non-MCP agents.
+
+### Added
+
+- `sync` command: push the full local receipt history to the configured
+  sink explicitly, for onboarding a gateway that ran local-only or a
+  fresh org. Refuses to push onto a foreign chain; `--dry-run` previews.
+- `docs/`: quickstart, policy reference (exact evaluation order),
+  approvals and grants guide, security model (honest threat model), and
+  an HTTP API reference for agents that do not speak MCP.
+- `@toolwarden/sdk` (in `sdk/`): a zero-dependency TypeScript client for
+  the approvals and receipts API. `approve()` holds an action until a
+  human or a standing grant decides (everything fails toward denial);
+  `fileReceipt()` appends hash-chained, countersigned receipts using the
+  same chain rule as the gateway. Runs on Node 20+, Workers, Deno, Bun.
+  Publishes to npm together with the gateway package.
+
 ## [0.10.0] - 2026-06-12
 
 Diagnosable and auditable by strangers.

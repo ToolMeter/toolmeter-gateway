@@ -148,6 +148,8 @@ sink:
 
 Delivery is fire-and-forget: batched, retried with backoff, and never on the call path. If the collector is down, calls keep flowing and the local `receipts.jsonl` stays complete. Wire schema: `POST {url}` with `Authorization: Bearer {token}` and body `{"gateway": string, "receipts": Receipt[]}`.
 
+To push the full local history explicitly (onboarding a gateway that ran local-only, or a fresh org), run `toolwarden-gateway sync --config toolwarden.yaml`; `--dry-run` shows what would be sent without sending it.
+
 ## Governance works before payments exist
 
 Policy is useful on entirely free tools. `examples/govern-free-tools.yaml` wraps the official filesystem MCP server so reads pass, writes require approval, destructive operations are denied, and everything is logged. No prices involved.
@@ -219,6 +221,14 @@ pnpm build    # tsc to dist/
 ```
 
 Version history lives in [CHANGELOG.md](CHANGELOG.md).
+
+## Documentation
+
+- [Quickstart](docs/quickstart.md): zero to a governed agent in five minutes.
+- [Policy reference](docs/policy-reference.md): every field and the exact evaluation order.
+- [Approvals and grants](docs/approvals-and-grants.md): who decides, how long calls wait, why everything fails toward denial.
+- [Security model](docs/security-model.md): what the chain, countersigning, and signed policy defend against, and what they do not.
+- [HTTP API](docs/http-api.md): approvals and receipts for agents that do not speak MCP, with [`@toolwarden/sdk`](sdk/) as the TypeScript client.
 
 ## Status
 

@@ -1,0 +1,36 @@
+{
+  "name": "@toolwarden/sdk",
+  "version": "0.1.0",
+  "description": "Approvals and tamper-evident receipts for any agent, no MCP gateway required",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "tsc"
+  },
+  "keywords": [
+    "ai-agents",
+    "governance",
+    "approvals",
+    "audit",
+    "receipts",
+    "toolwarden"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/toolwarden/toolwarden-gateway",
+    "directory": "sdk"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

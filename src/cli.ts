@@ -8,6 +8,7 @@ import { buildReport } from './report.js'
 import { runInit } from './init.js'
 import { serve } from './serve.js'
 import { runDoctor } from './doctor.js'
+import { runSync } from './sync.js'
 import { PolicySource } from './policy-source.js'
 import { readFileSync, existsSync, writeFileSync, watch } from 'node:fs'
 
@@ -22,7 +23,9 @@ function usage(): never {
   toolwarden-gateway report [--dir <dir>] [--month YYYY-MM] [--out <report.html>]
                                                        self-contained HTML audit report
   toolwarden-gateway verify [--dir <dir>]               verify receipt chain integrity
-  toolwarden-gateway doctor --config <toolwarden.yaml>  diagnose config, upstreams, and cloud`)
+  toolwarden-gateway doctor --config <toolwarden.yaml>  diagnose config, upstreams, and cloud
+  toolwarden-gateway sync --config <toolwarden.yaml> [--dry-run]
+                                                       push full local receipt history to the sink`)
   process.exit(1)
 }
 
@@ -214,6 +217,13 @@ if (command === 'receipts') {
   if (!cfg) usage()
   runDoctor(cfg!).catch((err) => {
     console.error('doctor crashed:', err)
+    process.exit(1)
+  })
+} else if (command === 'sync') {
+  const cfg = flag('config')
+  if (!cfg) usage()
+  runSync(cfg!, process.argv.includes('--dry-run')).catch((err) => {
+    console.error('sync failed:', err instanceof Error ? err.message : err)
     process.exit(1)
   })
 } else if (command === 'serve') {
